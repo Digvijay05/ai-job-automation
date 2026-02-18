@@ -43,7 +43,7 @@ ai-job-automation/
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/[YOUR_USERNAME]/ai-job-automation.git
+    git clone https://github.com/Digvijay05/ai-job-automation.git
     cd ai-job-automation
     ```
 
