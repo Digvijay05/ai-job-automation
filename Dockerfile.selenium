@@ -7,7 +7,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System deps for Chromium (Selenium), PDF parsing
+# Corrected install block for Debian Trixie (Python 3.12-slim)
+# - Removes deprecated libgconf-2-4
+# - Installs chromium-l10n for language support
+# - Installs fonts-liberation/roboto for rendering stability
+# - Installs libgbm1 which is crucial for headless rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
@@ -15,18 +19,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     chromium \
     chromium-driver \
+    chromium-l10n \
+    fonts-liberation \
+    fonts-roboto \
     libnss3 \
-    libgconf-2-4 \
-    libfontconfig1 \
     libxss1 \
     libasound2 \
     libatk-bridge2.0-0 \
     libgtk-3-0 \
-    && rm -rf /var/lib/apt/lists/*
+    libgbm1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Chrome binary paths for Selenium
+# Essential Chrome Environment Variables
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+
+# Chrome Options for Docker (passed to python script via env if supported, or just useful context)
+# The python script should ideally read these or apply defaults like --no-sandbox
+ENV CHROME_HEADLESS=true
+ENV CHROME_NO_SANDBOX=true
+ENV DBUS_SESSION_BUS_ADDRESS=/dev/null
 
 COPY src/scripts/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt

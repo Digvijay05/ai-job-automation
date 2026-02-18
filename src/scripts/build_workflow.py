@@ -5,7 +5,10 @@ Produces a single production n8n workflow with:
   - Multi-user webhook auth (x-automation-secret + x-user-api-key)
   - Resume ingestion module
   - Job analysis module (scrape → normalize → fit → tailor → humanize → email draft)
-  - Email dispatch module (OAuth refresh → rate limit → idempotency → send)
+  - Gmail-only email dispatch (OAuth2 via native Gmail node)
+  - AI Agent node for reply classification and generation
+  - Inbound email handling via Gmail Trigger
+  - Interview scheduling with Google Calendar
   - Audit logging on every module boundary
 
 Usage:
@@ -41,6 +44,8 @@ def node(nid: str, name: str, ntype: str, params: dict, pos: list[int],
 
 PG = {"postgres": {"id": "CONFIGURE_ME", "name": "Postgres"}}
 OLLAMA = {"httpHeaderAuth": {"id": "CONFIGURE_ME", "name": "Ollama API Key"}}
+GMAIL_CREDS = {"gmailOAuth2": {"id": "CONFIGURE_ME", "name": "Gmail OAuth2"}}
+CAL_CREDS = {"googleCalendarOAuth2Api": {"id": "CONFIGURE_ME", "name": "Google Calendar"}}
 
 def ollama_call(nid: str, name: str, system_prompt: str, user_expr: str,
                 pos: list[int], temp: float = 0.1) -> dict:
@@ -76,6 +81,32 @@ def set_node(nid: str, name: str, values: dict, pos: list[int]) -> dict:
         else:
             v["string"].append({"name": k, "value": str(val)})
     return node(nid, name, "set", {"values": v, "options": {}}, pos, version=3)
+
+def gmail_node(nid: str, name: str, operation: str, params: dict,
+              pos: list[int]) -> dict:
+    """Build a Gmail node (n8n-nodes-base.gmail, typeVersion 2.2)."""
+    base = {"operation": operation, **params}
+    return node(nid, name, "gmail", base, pos, version=2, creds=GMAIL_CREDS)
+
+def agent_node(nid: str, name: str, system_prompt: str, user_expr: str,
+               pos: list[int]) -> dict:
+    """Build an AI Agent node (@n8n/n8n-nodes-langchain.agent)."""
+    n: dict[str, Any] = {
+        "parameters": {
+            "promptType": "define",
+            "text": user_expr,
+            "options": {
+                "systemMessage": system_prompt,
+                "returnIntermediateSteps": False,
+            },
+        },
+        "id": nid,
+        "name": name,
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 2,
+        "position": pos,
+    }
+    return n
 
 def conn(src: str, *targets: str | tuple[str, ...]) -> dict:
     """Build connection entry. Each target is a string or tuple of strings (for branches)."""
@@ -492,85 +523,42 @@ nodes.append(pg_query("e006", "Log - Skipped Duplicate",
 
 nodes.append(set_node("e007", "Set - Skipped", {"status": "skipped", "reason": "duplicate_email"}, _pos(8420, 400)))
 
-# Not sent yet → fetch OAuth credentials and send
-nodes.append(pg_query("e010", "Postgres - Fetch Credentials",
-    "=SELECT credential_id, provider, sender_email, "
-    "pgp_sym_decrypt(refresh_token_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS refresh_token, "
-    "pgp_sym_decrypt(client_id_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_id_override, "
-    "pgp_sym_decrypt(client_secret_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_secret_override "
-    "FROM user_email_credentials WHERE user_id='{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid "
-    "AND is_active=TRUE LIMIT 1;",
-    _pos(8180, Y_E)))
-
-nodes.append(validate_node("e011", "Validate - Credentials",
-    'const cred = $input.first().json;\n'
-    'if (!cred || !cred.refresh_token) throw new Error("No active email credentials for user");\n'
-    'const email = $("Compute - Email Hash").first().json;\n'
-    'return [{ json: { ...cred, ...email } }];',
-    _pos(8420, Y_E)))
-
-# OAuth2 Token Refresh
-nodes.append(node("e012", "HTTP - Refresh Token", "httpRequest", {
-    "method": "POST",
-    "url": '={{ $json.provider === "GMAIL" ? "https://oauth2.googleapis.com/token" : "https://login.microsoftonline.com/" + ($env.OUTLOOK_TENANT_ID || "common") + "/oauth2/v2.0/token" }}',
-    "sendBody": True, "specifyBody": "keypair",
-    "bodyParameters": {"parameters": [
-        {"name": "grant_type", "value": "refresh_token"},
-        {"name": "refresh_token", "value": "={{ $json.refresh_token }}"},
-        {"name": "client_id", "value": '={{ $json.client_id_override || ($json.provider === "GMAIL" ? $env.GMAIL_CLIENT_ID : $env.OUTLOOK_CLIENT_ID) }}'},
-        {"name": "client_secret", "value": '={{ $json.client_secret_override || ($json.provider === "GMAIL" ? $env.GMAIL_CLIENT_SECRET : $env.OUTLOOK_CLIENT_SECRET) }}'},
-    ]},
-    "options": {"timeout": 15000},
-}, _pos(8660, Y_E), version=4))
-
-nodes.append(validate_node("e013", "Validate - Token",
-    'const resp = $input.first().json;\n'
-    'if (!resp.access_token) throw new Error("OAuth refresh failed: " + JSON.stringify(resp).substring(0,500));\n'
-    'const prev = $("Validate - Credentials").first().json;\n'
-    'return [{ json: { access_token: resp.access_token, ...prev } }];',
-    _pos(8900, Y_E)))
-
-# Send Email via API
-nodes.append(node("e014", "HTTP - Send Email", "httpRequest", {
-    "method": "POST",
-    "url": '={{ $json.provider === "GMAIL" ? "https://gmail.googleapis.com/gmail/v1/users/me/messages/send" : "https://graph.microsoft.com/v1.0/me/sendMail" }}',
-    "authentication": "predefinedCredentialType",
-    "sendHeaders": True,
-    "headerParameters": {"parameters": [
-        {"name": "Authorization", "value": "=Bearer {{ $json.access_token }}"},
-        {"name": "Content-Type", "value": "application/json"},
-    ]},
-    "sendBody": True, "specifyBody": "json",
-    "jsonBody": '={{ $json.provider === "GMAIL" ? JSON.stringify({ raw: Buffer.from("From: " + $json.sender_email + "\\r\\nTo: " + $json.recipient_email + "\\r\\nSubject: " + $json.subject + "\\r\\nContent-Type: text/plain; charset=utf-8\\r\\n\\r\\n" + $json.body).toString("base64url") }) : JSON.stringify({ message: { subject: $json.subject, body: { contentType: "Text", content: $json.body }, toRecipients: [{ emailAddress: { address: $json.recipient_email } }] } }) }}',
-    "options": {"timeout": 30000},
-}, _pos(9140, Y_E), version=4))
+# Not sent yet → Send via Gmail (OAuth2 handled by n8n Gmail credential)
+nodes.append(gmail_node("e010", "Gmail - Send Email", "send", {
+    "sendTo": '={{ $("Compute - Email Hash").first().json.recipient_email }}',
+    "subject": '={{ $("Compute - Email Hash").first().json.subject }}',
+    "message": '={{ $("Compute - Email Hash").first().json.body }}',
+    "options": {
+        "appendAttribution": False,
+    },
+}, _pos(8180, Y_E)))
 
 # Log send result
 nodes.append(pg_query("e015", "Postgres - Log Send",
     "=INSERT INTO email_dispatch_log (execution_uuid, user_id, job_id, application_id, company_id, recipient_email, subject, email_body_hash, "
-    "provider_message_id, sent_status) VALUES ('={{ $execution.id }}'::uuid, "
+    "provider_message_id, thread_id, sent_status) VALUES ('={{ $execution.id }}'::uuid, "
     "'{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.job_id }}'::uuid, "
     "'{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid, "
-    "'{{ $(\"Validate - Fit\").first().json.company_id }}'::uuid, "
+    "{{ $(\"Compute - Email Hash\").first().json.company_id ? \"'\" + $(\"Compute - Email Hash\").first().json.company_id + \"'::uuid\" : \"NULL\" }}, "
     "'{{ $(\"Compute - Email Hash\").first().json.recipient_email }}', "
     "'{{ $(\"Compute - Email Hash\").first().json.subject }}', "
     "'{{ $(\"Compute - Email Hash\").first().json.email_body_hash }}', "
-    "'{{ $json.id || $json.messageId || \"\" }}', 'SENT') "
+    "'{{ $json.id || \"\" }}', '{{ $json.threadId || \"\" }}', 'SENT') "
     "ON CONFLICT (user_id, job_id, email_body_hash) DO NOTHING;",
-    _pos(9380, Y_E)))
+    _pos(8420, Y_E)))
 
 nodes.append(pg_query("e016", "Postgres - Mark App Sent",
     "=UPDATE applications SET status='SENT', sent_at=NOW() "
     "WHERE application_id='{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid;",
-    _pos(9620, Y_E)))
+    _pos(8660, Y_E)))
 
 nodes.append(pg_query("e017", "Log - Dispatch Success",
     "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) "
     "VALUES ('{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, 'email_dispatch', '={{ $execution.id }}', "
     "'SUCCESS', '{\"recipient\": \"{{ $(\"Compute - Email Hash\").first().json.recipient_email }}\"}'::jsonb);",
-    _pos(9860, Y_E)))
+    _pos(8900, Y_E)))
 
-nodes.append(set_node("e018", "Set - Dispatch OK", {"status": "success", "module": "email_dispatch"}, _pos(10100, Y_E)))
+nodes.append(set_node("e018", "Set - Dispatch OK", {"status": "success", "module": "email_dispatch"}, _pos(9140, Y_E)))
 
 # ── Low Fit Branch ──
 Y_L = 840
@@ -665,10 +653,11 @@ nodes.append(pg_query("i011", "Postgres - Match Thread",
     "LIMIT 1;",
     _pos(2420, Y_I)))
 
-# Classify reply via Ollama
-CLASSIFY_REPLY_PROMPT = (
-    "You are an email reply classifier for job applications. Classify the incoming reply.\\n"
-    'Return STRICT JSON matching this schema exactly:\\n'
+# Classify reply via AI Agent (LLM_CLASSIFY — centralized reasoning)
+CLASSIFY_AGENT_PROMPT = (
+    "You are an intelligent email reply classifier for job applications. "
+    "Analyze the incoming reply and classify it. "
+    "Return STRICT JSON matching this schema exactly:\\n"
     '{"reply_type":string(REQUIRED, one of: INTERVIEW_INVITE, FOLLOW_UP_REQUIRED, REJECTION, INFORMATION_REQUEST, OTHER),'
     '"tone":string(REQUIRED, e.g. positive, neutral, negative, formal),'
     '"urgency_level":string(REQUIRED, one of: HIGH, MEDIUM, LOW),'
@@ -676,14 +665,15 @@ CLASSIFY_REPLY_PROMPT = (
     '"summary":string(1-2 sentences summarizing the reply)}\\n'
     "Return ONLY valid JSON. No markdown fences."
 )
-nodes.append(ollama_call("i012", "Ollama - Classify Reply", CLASSIFY_REPLY_PROMPT,
+nodes.append(agent_node("i012", "AI Agent - Classify Reply", CLASSIFY_AGENT_PROMPT,
     '={{ JSON.stringify($json.email_body || $("Validate - Inbound Payload").first().json.email_body) }}',
-    _pos(2660, Y_I), temp=0.1))
+    _pos(2660, Y_I)))
 
 nodes.append(validate_node("i013", "Validate - Classification",
     'const resp = $input.first().json;\n'
-    'const content = resp.choices[0].message.content;\n'
-    'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Classification invalid JSON: " + content.substring(0,500)); }\n'
+    '// AI Agent returns { output: "..." }, fallback to Ollama format for compatibility\n'
+    'const content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) || JSON.stringify(resp);\n'
+    'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Classification invalid JSON: " + String(content).substring(0,500)); }\n'
     'const validTypes = ["INTERVIEW_INVITE","FOLLOW_UP_REQUIRED","REJECTION","INFORMATION_REQUEST","OTHER"];\n'
     'if (!validTypes.includes(p.reply_type)) throw new Error("Invalid reply_type: " + p.reply_type);\n'
     'if (typeof p.requires_user_action !== "boolean") p.requires_user_action = false;\n'
@@ -694,7 +684,7 @@ nodes.append(validate_node("i013", "Validate - Classification",
     'p.dispatch_log_id = thread.dispatch_log_id || null; p.job_id = thread.job_id || null;\n'
     'p.company_id = thread.company_id || null; p.subject = ctx.subject || thread.subject || "";\n'
     'p._classification_json = JSON.stringify(p);\n'
-    'p._llm_model = resp.model || ""; p._llm_tokens = resp.usage || null;\n'
+    'p._llm_model = "ai-agent"; p._llm_tokens = null;\n'
     'return [{ json: p }];',
     _pos(2900, Y_I)))
 
@@ -878,8 +868,7 @@ nodes.append(node("iv003", "IF - Interview Exists", "if", {
 nodes.append(set_node("iv004", "Set - Interview Dup Skipped",
     {"status": "skipped", "reason": "duplicate_interview"}, _pos(4580, Y_IV - 200)))
 
-# Create Google Calendar Event
-CAL_CREDS = {"googleCalendarOAuth2Api": {"id": "CONFIGURE_ME", "name": "Google Calendar"}}
+# Create Google Calendar Event (uses CAL_CREDS defined in helpers)
 
 nodes.append(node("iv005", "Google Calendar - Create Event", "googleCalendar", {
     "operation": "create",
@@ -1031,19 +1020,15 @@ add_conn("Validate - Email", ["Postgres - Save Email Draft"])
 add_conn("Postgres - Save Email Draft", ["IF - Auto Send"])
 add_conn("IF - Auto Send", ["Check - Rate Limit"], ["Log - Draft Saved"])
 
-# Email dispatch chain (shared by auto-send, manual dispatch, auto-reply, and confirmations)
+# Email dispatch chain (Gmail-only, shared by auto-send, manual dispatch, auto-reply, and confirmations)
 add_conn("Check - Rate Limit", ["Postgres - Count Recent Sends"])
 add_conn("Postgres - Count Recent Sends", ["Validate - Rate Limit"])
 add_conn("Validate - Rate Limit", ["Compute - Email Hash"])
 add_conn("Compute - Email Hash", ["Postgres - Check Duplicate"])
 add_conn("Postgres - Check Duplicate", ["IF - Already Sent"])
-add_conn("IF - Already Sent", ["Log - Skipped Duplicate"], ["Postgres - Fetch Credentials"])
+add_conn("IF - Already Sent", ["Log - Skipped Duplicate"], ["Gmail - Send Email"])
 add_conn("Log - Skipped Duplicate", ["Set - Skipped"])
-add_conn("Postgres - Fetch Credentials", ["Validate - Credentials"])
-add_conn("Validate - Credentials", ["HTTP - Refresh Token"])
-add_conn("HTTP - Refresh Token", ["Validate - Token"])
-add_conn("Validate - Token", ["HTTP - Send Email"])
-add_conn("HTTP - Send Email", ["Postgres - Log Send"])
+add_conn("Gmail - Send Email", ["Postgres - Log Send"])
 add_conn("Postgres - Log Send", ["Postgres - Mark App Sent"])
 add_conn("Postgres - Mark App Sent", ["Log - Dispatch Success"])
 add_conn("Log - Dispatch Success", ["Set - Dispatch OK"])
@@ -1063,8 +1048,8 @@ add_conn("Log - Inbound Start", ["Postgres - Check Inbound Dup"])
 add_conn("Postgres - Check Inbound Dup", ["IF - Inbound Already Processed"])
 add_conn("IF - Inbound Already Processed", ["Set - Inbound Skipped"], ["Validate - Inbound Payload"])
 add_conn("Validate - Inbound Payload", ["Postgres - Match Thread"])
-add_conn("Postgres - Match Thread", ["Ollama - Classify Reply"])
-add_conn("Ollama - Classify Reply", ["Validate - Classification"])
+add_conn("Postgres - Match Thread", ["AI Agent - Classify Reply"])
+add_conn("AI Agent - Classify Reply", ["Validate - Classification"])
 add_conn("Validate - Classification", ["Postgres - Log Inbound"])
 add_conn("Postgres - Log Inbound", ["Switch - Reply Type"])
 add_conn("Switch - Reply Type",

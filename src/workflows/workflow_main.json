@@ -152,6 +152,21 @@
                 ]
               },
               "outputIndex": 2
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._request_body.action }}",
+                    "rightValue": "process_inbound",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 3
             }
           ]
         },
@@ -176,7 +191,7 @@
             },
             {
               "name": "message",
-              "value": "Unknown action. Use resume_upload, analyze_job, or dispatch_email."
+              "value": "Unknown action. Use resume_upload, analyze_job, dispatch_email, or process_inbound."
             }
           ],
           "number": [
@@ -194,7 +209,7 @@
       "typeVersion": 3,
       "position": [
         1460,
-        1100
+        1300
       ]
     },
     {
@@ -935,134 +950,40 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "=SELECT credential_id, provider, sender_email, pgp_sym_decrypt(refresh_token_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS refresh_token, pgp_sym_decrypt(client_id_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_id_override, pgp_sym_decrypt(client_secret_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_secret_override FROM user_email_credentials WHERE user_id='{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid AND is_active=TRUE LIMIT 1;"
+        "operation": "send",
+        "sendTo": "={{ $(\"Compute - Email Hash\").first().json.recipient_email }}",
+        "subject": "={{ $(\"Compute - Email Hash\").first().json.subject }}",
+        "message": "={{ $(\"Compute - Email Hash\").first().json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
       },
       "id": "e010",
-      "name": "Postgres - Fetch Credentials",
-      "type": "n8n-nodes-base.postgres",
+      "name": "Gmail - Send Email",
+      "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
       "position": [
         8180,
         200
       ],
       "credentials": {
-        "postgres": {
+        "gmailOAuth2": {
           "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "name": "Gmail OAuth2"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const cred = $input.first().json;\nif (!cred || !cred.refresh_token) throw new Error(\"No active email credentials for user\");\nconst email = $(\"Compute - Email Hash\").first().json;\nreturn [{ json: { ...cred, ...email } }];"
-      },
-      "id": "e011",
-      "name": "Validate - Credentials",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        8420,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json.provider === \"GMAIL\" ? \"https://oauth2.googleapis.com/token\" : \"https://login.microsoftonline.com/\" + ($env.OUTLOOK_TENANT_ID || \"common\") + \"/oauth2/v2.0/token\" }}",
-        "sendBody": true,
-        "specifyBody": "keypair",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "grant_type",
-              "value": "refresh_token"
-            },
-            {
-              "name": "refresh_token",
-              "value": "={{ $json.refresh_token }}"
-            },
-            {
-              "name": "client_id",
-              "value": "={{ $json.client_id_override || ($json.provider === \"GMAIL\" ? $env.GMAIL_CLIENT_ID : $env.OUTLOOK_CLIENT_ID) }}"
-            },
-            {
-              "name": "client_secret",
-              "value": "={{ $json.client_secret_override || ($json.provider === \"GMAIL\" ? $env.GMAIL_CLIENT_SECRET : $env.OUTLOOK_CLIENT_SECRET) }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "e012",
-      "name": "HTTP - Refresh Token",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [
-        8660,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const resp = $input.first().json;\nif (!resp.access_token) throw new Error(\"OAuth refresh failed: \" + JSON.stringify(resp).substring(0,500));\nconst prev = $(\"Validate - Credentials\").first().json;\nreturn [{ json: { access_token: resp.access_token, ...prev } }];"
-      },
-      "id": "e013",
-      "name": "Validate - Token",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        8900,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json.provider === \"GMAIL\" ? \"https://gmail.googleapis.com/gmail/v1/users/me/messages/send\" : \"https://graph.microsoft.com/v1.0/me/sendMail\" }}",
-        "authentication": "predefinedCredentialType",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $json.provider === \"GMAIL\" ? JSON.stringify({ raw: Buffer.from(\"From: \" + $json.sender_email + \"\\r\\nTo: \" + $json.recipient_email + \"\\r\\nSubject: \" + $json.subject + \"\\r\\nContent-Type: text/plain; charset=utf-8\\r\\n\\r\\n\" + $json.body).toString(\"base64url\") }) : JSON.stringify({ message: { subject: $json.subject, body: { contentType: \"Text\", content: $json.body }, toRecipients: [{ emailAddress: { address: $json.recipient_email } }] } }) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "e014",
-      "name": "HTTP - Send Email",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [
-        9140,
-        200
-      ]
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
-        "query": "=INSERT INTO email_dispatch_log (execution_uuid, user_id, job_id, application_id, company_id, recipient_email, subject, email_body_hash, provider_message_id, sent_status) VALUES ('={{ $execution.id }}'::uuid, '{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.job_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid, '{{ $(\"Validate - Fit\").first().json.company_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.recipient_email }}', '{{ $(\"Compute - Email Hash\").first().json.subject }}', '{{ $(\"Compute - Email Hash\").first().json.email_body_hash }}', '{{ $json.id || $json.messageId || \"\" }}', 'SENT') ON CONFLICT (user_id, job_id, email_body_hash) DO NOTHING;"
+        "query": "=INSERT INTO email_dispatch_log (execution_uuid, user_id, job_id, application_id, company_id, recipient_email, subject, email_body_hash, provider_message_id, thread_id, sent_status) VALUES ('={{ $execution.id }}'::uuid, '{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.job_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid, {{ $(\"Compute - Email Hash\").first().json.company_id ? \"'\" + $(\"Compute - Email Hash\").first().json.company_id + \"'::uuid\" : \"NULL\" }}, '{{ $(\"Compute - Email Hash\").first().json.recipient_email }}', '{{ $(\"Compute - Email Hash\").first().json.subject }}', '{{ $(\"Compute - Email Hash\").first().json.email_body_hash }}', '{{ $json.id || \"\" }}', '{{ $json.threadId || \"\" }}', 'SENT') ON CONFLICT (user_id, job_id, email_body_hash) DO NOTHING;"
       },
       "id": "e015",
       "name": "Postgres - Log Send",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [
-        9380,
+        8420,
         200
       ],
       "credentials": {
@@ -1082,7 +1003,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [
-        9620,
+        8660,
         200
       ],
       "credentials": {
@@ -1102,7 +1023,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [
-        9860,
+        8900,
         200
       ],
       "credentials": {
@@ -1134,7 +1055,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        10100,
+        9140,
         200
       ]
     },
@@ -1266,6 +1187,860 @@
         1700,
         1000
       ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, input_summary) VALUES ('{{ $json.user_id }}'::uuid, 'inbound_email', '={{ $execution.id }}', 'STARTED', '{\"thread_id\": \"{{ $json._request_body.data.thread_id }}\"}'::jsonb);"
+      },
+      "id": "i000",
+      "name": "Log - Inbound Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT inbound_id FROM inbound_email_log WHERE user_id='{{ $json.user_id }}'::uuid AND message_id='{{ $json._request_body.data.message_id }}' LIMIT 1;"
+      },
+      "id": "i001",
+      "name": "Postgres - Check Inbound Dup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.inbound_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "i002",
+      "name": "IF - Inbound Already Processed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "reason",
+              "value": "already_processed"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "i003",
+      "name": "Set - Inbound Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        2180,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $(\"Validate - User Auth\").first().json._request_body.data;\nif (!body.thread_id) throw new Error(\"Missing thread_id\");\nif (!body.message_id) throw new Error(\"Missing message_id\");\nif (!body.sender_email) throw new Error(\"Missing sender_email\");\nif (!body.email_body) throw new Error(\"Missing email_body\");\nconst user = $(\"Validate - User Auth\").first().json;\nreturn [{ json: { ...body, user_id: user.user_id, email_mode: user.email_mode } }];"
+      },
+      "id": "i010",
+      "name": "Validate - Inbound Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT edl.log_id AS dispatch_log_id, edl.job_id, edl.company_id, edl.recipient_email, edl.subject FROM email_dispatch_log edl WHERE edl.user_id='{{ $json.user_id }}'::uuid AND edl.sent_status='SENT' AND (edl.provider_message_id='{{ $json.thread_id }}' OR edl.provider_message_id='{{ $json.message_id }}') LIMIT 1;"
+      },
+      "id": "i011",
+      "name": "Postgres - Match Thread",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.email_body || $(\"Validate - Inbound Payload\").first().json.email_body) }}",
+        "options": {
+          "systemMessage": "You are an intelligent email reply classifier for job applications. Analyze the incoming reply and classify it. Return STRICT JSON matching this schema exactly:\\n{\"reply_type\":string(REQUIRED, one of: INTERVIEW_INVITE, FOLLOW_UP_REQUIRED, REJECTION, INFORMATION_REQUEST, OTHER),\"tone\":string(REQUIRED, e.g. positive, neutral, negative, formal),\"urgency_level\":string(REQUIRED, one of: HIGH, MEDIUM, LOW),\"requires_user_action\":boolean(REQUIRED),\"summary\":string(1-2 sentences summarizing the reply)}\\nReturn ONLY valid JSON. No markdown fences.",
+          "returnIntermediateSteps": false
+        }
+      },
+      "id": "i012",
+      "name": "AI Agent - Classify Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\n// AI Agent returns { output: \"...\" }, fallback to Ollama format for compatibility\nconst content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) || JSON.stringify(resp);\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Classification invalid JSON: \" + String(content).substring(0,500)); }\nconst validTypes = [\"INTERVIEW_INVITE\",\"FOLLOW_UP_REQUIRED\",\"REJECTION\",\"INFORMATION_REQUEST\",\"OTHER\"];\nif (!validTypes.includes(p.reply_type)) throw new Error(\"Invalid reply_type: \" + p.reply_type);\nif (typeof p.requires_user_action !== \"boolean\") p.requires_user_action = false;\nconst ctx = $(\"Validate - Inbound Payload\").first().json;\nconst thread = $(\"Postgres - Match Thread\").first().json;\np.user_id = ctx.user_id; p.thread_id = ctx.thread_id; p.message_id = ctx.message_id;\np.sender_email = ctx.sender_email; p.email_body = ctx.email_body; p.email_mode = ctx.email_mode;\np.dispatch_log_id = thread.dispatch_log_id || null; p.job_id = thread.job_id || null;\np.company_id = thread.company_id || null; p.subject = ctx.subject || thread.subject || \"\";\np._classification_json = JSON.stringify(p);\np._llm_model = \"ai-agent\"; p._llm_tokens = null;\nreturn [{ json: p }];"
+      },
+      "id": "i013",
+      "name": "Validate - Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO inbound_email_log (execution_uuid, user_id, thread_id, message_id, sender_email, subject, raw_email, reply_type, classification_json, dispatch_log_id, job_id, company_id, processed_at) VALUES ('={{ $execution.id }}'::uuid, '{{ $json.user_id }}'::uuid, '{{ $json.thread_id }}', '{{ $json.message_id }}', '{{ $json.sender_email }}', '{{ $json.subject }}', '{{ $json.email_body }}', '{{ $json.reply_type }}', '{{ $json._classification_json }}'::jsonb, {{ $json.dispatch_log_id ? \"'\" + $json.dispatch_log_id + \"'::uuid\" : \"NULL\" }}, {{ $json.job_id ? \"'\" + $json.job_id + \"'::uuid\" : \"NULL\" }}, {{ $json.company_id ? \"'\" + $json.company_id + \"'::uuid\" : \"NULL\" }}, NOW()) ON CONFLICT (user_id, message_id) DO NOTHING RETURNING inbound_id;"
+      },
+      "id": "i014",
+      "name": "Postgres - Log Inbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3140,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}",
+                    "rightValue": "INTERVIEW_INVITE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 0
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}",
+                    "rightValue": "FOLLOW_UP_REQUIRED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 1
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}",
+                    "rightValue": "INFORMATION_REQUEST",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 1
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}",
+                    "rightValue": "REJECTION",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 2
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "i015",
+      "name": "Switch - Reply Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3380,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant writing a follow-up reply. Context: You previously applied for a role and received a response. Generate a contextual, professional reply. Keep it concise (80-120 words). Be helpful, enthusiastic, and specific.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Original subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nReply type: \" + $(\"Validate - Classification\").first().json.reply_type + \"\\nIncoming email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "i020",
+      "name": "Ollama - Generate Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3620,
+        1600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "i021",
+      "name": "Ollama - Humanize Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3860,
+        1600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Reply humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.recipient_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = p.humanized_subject; p.body = p.humanized_body;\nreturn [{ json: p }];"
+      },
+      "id": "i022",
+      "name": "Validate - Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4100,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email_mode }}",
+              "operation": "equals",
+              "value2": "AUTO"
+            }
+          ]
+        }
+      },
+      "id": "i023",
+      "name": "IF - Auto Reply Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        4340,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "pending_review"
+            },
+            {
+              "name": "module",
+              "value": "inbound_auto_reply"
+            },
+            {
+              "name": "reply_type",
+              "value": "={{ $(\"Validate - Classification\").first().json.reply_type }}"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "i024",
+      "name": "Set - Reply Pending Review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        4580,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.4,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a brief, polite acknowledgment to a rejection email. Express gratitude for their time, wish them well, and leave the door open. Keep it under 60 words.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nRejection email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "i030",
+      "name": "Ollama - Rejection Ack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3620,
+        1800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Rejection ack invalid JSON\"); }\nif (!p.reply_body) throw new Error(\"Missing reply_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.recipient_email = ctx.sender_email;\np.subject = p.reply_subject || \"Re: \" + ctx.subject; p.body = p.reply_body;\nreturn [{ json: p }];"
+      },
+      "id": "i031",
+      "name": "Validate - Rejection Ack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3860,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Validate - Classification\").first().json.user_id }}'::uuid, 'inbound_rejection', '={{ $execution.id }}', 'SUCCESS', '{\"reply_type\": \"REJECTION\", \"sender\": \"{{ $(\"Validate - Classification\").first().json.sender_email }}\"}'::jsonb);"
+      },
+      "id": "i032",
+      "name": "Log - Rejection Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        4100,
+        1800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "rejection_acknowledged"
+            },
+            {
+              "name": "module",
+              "value": "inbound_email"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "i033",
+      "name": "Set - Rejection OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        4340,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Validate - Classification\").first().json.user_id }}'::uuid, 'inbound_other', '={{ $execution.id }}', 'SUCCESS', '{\"reply_type\": \"OTHER\", \"requires_user_action\": true}'::jsonb);"
+      },
+      "id": "i040",
+      "name": "Log - Other Inbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        2000
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "manual_review"
+            },
+            {
+              "name": "module",
+              "value": "inbound_email"
+            },
+            {
+              "name": "message",
+              "value": "Reply classified as OTHER - requires manual review"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "i041",
+      "name": "Set - Manual Review Required",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        3860,
+        2000
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are an interview details extractor. Extract scheduling information from the email.\\\\nReturn STRICT JSON matching this schema exactly:\\\\n{\\\"interview_date\\\":string(REQUIRED, ISO 8601 format YYYY-MM-DD),\\\"interview_time\\\":string(REQUIRED, HH:MM 24h format),\\\"timezone\\\":string(default \\\"UTC\\\"),\\\"interview_mode\\\":string(REQUIRED, one of: VIRTUAL, IN_PERSON, PHONE),\\\"meeting_link\\\":string|null,\\\"interviewer_name\\\":string|null,\\\"interviewer_email\\\":string|null,\\\"location\\\":string|null,\\\"duration_minutes\\\":integer(default 60),\\\"additional_notes\\\":string|null}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "iv000",
+      "name": "Ollama - Extract Interview",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3620,
+        1200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Interview extract invalid JSON: \" + content.substring(0,500)); }\nif (!p.interview_date || !p.interview_time) throw new Error(\"Missing interview_date or interview_time\");\nconst validModes = [\"VIRTUAL\",\"IN_PERSON\",\"PHONE\"];\nif (!validModes.includes(p.interview_mode)) p.interview_mode = \"VIRTUAL\";\np.duration_minutes = p.duration_minutes || 60;\np.timezone = p.timezone || \"UTC\";\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.sender_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = ctx.subject;\np.interviewer_email = p.interviewer_email || ctx.sender_email;\np._llm_model = resp.model || \"\";\nreturn [{ json: p }];"
+      },
+      "id": "iv001",
+      "name": "Validate - Interview Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3860,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT interview_id FROM interview_log WHERE user_id='{{ $json.user_id }}'::uuid AND job_id='{{ $json.job_id }}'::uuid AND interview_datetime='{{ $json.interview_date }}T{{ $json.interview_time }}:00'::timestamptz LIMIT 1;"
+      },
+      "id": "iv002",
+      "name": "Postgres - Check Dup Interview",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        4100,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.interview_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "iv003",
+      "name": "IF - Interview Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        4340,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "reason",
+              "value": "duplicate_interview"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "iv004",
+      "name": "Set - Interview Dup Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        4580,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ $(\"Validate - Interview Details\").first().json.interview_date + \"T\" + $(\"Validate - Interview Details\").first().json.interview_time + \":00\" }}",
+        "end": "={{ (function() { const d = new Date($(\"Validate - Interview Details\").first().json.interview_date + \"T\" + $(\"Validate - Interview Details\").first().json.interview_time + \":00\"); d.setMinutes(d.getMinutes() + ($(\"Validate - Interview Details\").first().json.duration_minutes || 60)); return d.toISOString(); })() }}",
+        "additionalFields": {
+          "summary": "=Interview: {{ $(\"Validate - Classification\").first().json.subject }}",
+          "description": "=Interview Details\\nCompany: {{ $(\"Validate - Classification\").first().json.company_id }}\\nInterviewer: {{ $(\"Validate - Interview Details\").first().json.interviewer_name || \"TBD\" }}\\nContact: {{ $(\"Validate - Interview Details\").first().json.interviewer_email }}\\nMode: {{ $(\"Validate - Interview Details\").first().json.interview_mode }}\\nLink: {{ $(\"Validate - Interview Details\").first().json.meeting_link || \"N/A\" }}\\nLocation: {{ $(\"Validate - Interview Details\").first().json.location || \"N/A\" }}\\nNotes: {{ $(\"Validate - Interview Details\").first().json.additional_notes || \"None\" }}",
+          "attendees": "={{ $(\"Validate - Interview Details\").first().json.interviewer_email }}",
+          "visibility": "private",
+          "reminders": {
+            "reminderValues": [
+              {
+                "method": "popup",
+                "minutes": 30
+              }
+            ]
+          },
+          "timeZone": "={{ $(\"Validate - Interview Details\").first().json.timezone || \"UTC\" }}"
+        }
+      },
+      "id": "iv005",
+      "name": "Google Calendar - Create Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 3,
+      "position": [
+        4580,
+        1200
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "CONFIGURE_ME",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO interview_log (user_id, job_id, company_id, inbound_id, calendar_event_id, interview_datetime, end_datetime, timezone, interview_mode, meeting_link, location, interviewer_name, interviewer_email, status, notes) VALUES ('{{ $(\"Validate - Interview Details\").first().json.user_id }}'::uuid, '{{ $(\"Validate - Interview Details\").first().json.job_id }}'::uuid, {{ $(\"Validate - Interview Details\").first().json.company_id ? \"'\" + $(\"Validate - Interview Details\").first().json.company_id + \"'::uuid\" : \"NULL\" }}, {{ $(\"Postgres - Log Inbound\").first().json.inbound_id ? \"'\" + $(\"Postgres - Log Inbound\").first().json.inbound_id + \"'::uuid\" : \"NULL\" }}, '{{ $json.id || $json.iCalUID || \"\" }}', '{{ $(\"Validate - Interview Details\").first().json.interview_date }}T{{ $(\"Validate - Interview Details\").first().json.interview_time }}:00'::timestamptz, '{{ $(\"Validate - Interview Details\").first().json.interview_date }}T{{ $(\"Validate - Interview Details\").first().json.interview_time }}:00'::timestamptz + INTERVAL '{{ $(\"Validate - Interview Details\").first().json.duration_minutes || 60 }} minutes', '{{ $(\"Validate - Interview Details\").first().json.timezone }}', '{{ $(\"Validate - Interview Details\").first().json.interview_mode }}', '{{ $(\"Validate - Interview Details\").first().json.meeting_link || \"\" }}', '{{ $(\"Validate - Interview Details\").first().json.location || \"\" }}', '{{ $(\"Validate - Interview Details\").first().json.interviewer_name || \"\" }}', '{{ $(\"Validate - Interview Details\").first().json.interviewer_email }}', 'SCHEDULED', '{{ $(\"Validate - Interview Details\").first().json.additional_notes || \"\" }}') ON CONFLICT (user_id, job_id, interview_datetime) DO NOTHING RETURNING interview_id;"
+      },
+      "id": "iv006",
+      "name": "Postgres - Log Interview",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        4820,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE jobs SET status='INTERVIEW', updated_at=NOW() WHERE job_id='{{ $(\"Validate - Interview Details\").first().json.job_id }}'::uuid;"
+      },
+      "id": "iv007",
+      "name": "Postgres - Update Job Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        5060,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a concise interview confirmation email (80-120 words). Confirm date, time, and mode. Express enthusiasm. Ask if anything needs to be prepared.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Interview date: \" + $(\"Validate - Interview Details\").first().json.interview_date + \" \" + $(\"Validate - Interview Details\").first().json.interview_time + \"\\nMode: \" + $(\"Validate - Interview Details\").first().json.interview_mode + \"\\nInterviewer: \" + ($(\"Validate - Interview Details\").first().json.interviewer_name || \"Hiring Manager\") + \"\\nOriginal email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "iv008",
+      "name": "Ollama - Confirmation Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5300,
+        1200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "iv009",
+      "name": "Ollama - Humanize Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5540,
+        1200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Confirmation humanize invalid JSON\"); }\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Interview Details\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id;\np.recipient_email = ctx.interviewer_email;\np.subject = p.humanized_subject || \"Re: \" + ctx.subject; p.body = p.humanized_body;\np.email_mode = ctx.email_mode;\nreturn [{ json: p }];"
+      },
+      "id": "iv010",
+      "name": "Validate - Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5780,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email_mode }}",
+              "operation": "equals",
+              "value2": "AUTO"
+            }
+          ]
+        }
+      },
+      "id": "iv011",
+      "name": "IF - Auto Confirm Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        6020,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "pending_review"
+            },
+            {
+              "name": "module",
+              "value": "interview_confirmation"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "iv012",
+      "name": "Set - Confirm Pending Review",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        6260,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Validate - Interview Details\").first().json.user_id }}'::uuid, 'interview_scheduling', '={{ $execution.id }}', 'SUCCESS', '{\"interview_date\": \"{{ $(\"Validate - Interview Details\").first().json.interview_date }}\", \"mode\": \"{{ $(\"Validate - Interview Details\").first().json.interview_mode }}\"}'::jsonb);"
+      },
+      "id": "iv013",
+      "name": "Log - Interview Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        6260,
+        1200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "interview_scheduled"
+            },
+            {
+              "name": "module",
+              "value": "interview_scheduling"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "iv014",
+      "name": "Set - Interview Scheduled OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        6500,
+        1200
+      ]
     }
   ],
   "connections": {
@@ -1339,6 +2114,13 @@
         [
           {
             "node": "Postgres - Fetch Application",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Inbound Start",
             "type": "main",
             "index": 0
           }
@@ -1751,7 +2533,7 @@
         ],
         [
           {
-            "node": "Postgres - Fetch Credentials",
+            "node": "Gmail - Send Email",
             "type": "main",
             "index": 0
           }
@@ -1769,51 +2551,7 @@
         ]
       ]
     },
-    "Postgres - Fetch Credentials": {
-      "main": [
-        [
-          {
-            "node": "Validate - Credentials",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate - Credentials": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Refresh Token",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Refresh Token": {
-      "main": [
-        [
-          {
-            "node": "Validate - Token",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate - Token": {
-      "main": [
-        [
-          {
-            "node": "HTTP - Send Email",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP - Send Email": {
+    "Gmail - Send Email": {
       "main": [
         [
           {
@@ -1895,6 +2633,385 @@
         [
           {
             "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Inbound Start": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Check Inbound Dup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Check Inbound Dup": {
+      "main": [
+        [
+          {
+            "node": "IF - Inbound Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Inbound Already Processed": {
+      "main": [
+        [
+          {
+            "node": "Set - Inbound Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate - Inbound Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Inbound Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Match Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Match Thread": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Classify Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Classify Reply": {
+      "main": [
+        [
+          {
+            "node": "Validate - Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Classification": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log Inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Log Inbound": {
+      "main": [
+        [
+          {
+            "node": "Switch - Reply Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Reply Type": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Extract Interview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama - Generate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama - Rejection Ack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Other Inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Generate Reply": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Humanize Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Humanize Reply": {
+      "main": [
+        [
+          {
+            "node": "Validate - Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Reply": {
+      "main": [
+        [
+          {
+            "node": "IF - Auto Reply Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Auto Reply Send": {
+      "main": [
+        [
+          {
+            "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Reply Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Rejection Ack": {
+      "main": [
+        [
+          {
+            "node": "Validate - Rejection Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Rejection Ack": {
+      "main": [
+        [
+          {
+            "node": "Log - Rejection Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Rejection Processed": {
+      "main": [
+        [
+          {
+            "node": "Set - Rejection OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Other Inbound": {
+      "main": [
+        [
+          {
+            "node": "Set - Manual Review Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Extract Interview": {
+      "main": [
+        [
+          {
+            "node": "Validate - Interview Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Interview Details": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Check Dup Interview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Check Dup Interview": {
+      "main": [
+        [
+          {
+            "node": "IF - Interview Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Interview Exists": {
+      "main": [
+        [
+          {
+            "node": "Set - Interview Dup Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Calendar - Create Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar - Create Event": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log Interview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Log Interview": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Update Job Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Update Job Status": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Humanize Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Humanize Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Validate - Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Confirmation": {
+      "main": [
+        [
+          {
+            "node": "IF - Auto Confirm Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Auto Confirm Send": {
+      "main": [
+        [
+          {
+            "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Confirm Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Confirm Pending Review": {
+      "main": [
+        [
+          {
+            "node": "Log - Interview Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Interview Success": {
+      "main": [
+        [
+          {
+            "node": "Set - Interview Scheduled OK",
             "type": "main",
             "index": 0
           }
