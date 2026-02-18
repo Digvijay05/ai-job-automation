@@ -135,12 +135,13 @@ nodes.append(node("w010", "Switch - Router", "switch", {
         {"conditions": {"conditions": [{"leftValue": "={{ $json._request_body.action }}", "rightValue": "resume_upload", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 0},
         {"conditions": {"conditions": [{"leftValue": "={{ $json._request_body.action }}", "rightValue": "analyze_job", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 1},
         {"conditions": {"conditions": [{"leftValue": "={{ $json._request_body.action }}", "rightValue": "dispatch_email", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 2},
+        {"conditions": {"conditions": [{"leftValue": "={{ $json._request_body.action }}", "rightValue": "process_inbound", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 3},
     ]},
     "fallbackOutput": "extra",
 }, _pos(1200, 600), version=3))
 
 nodes.append(set_node("w011", "Set - 400 Bad Action", {"statusCode": 400, "status": "error",
-    "message": "Unknown action. Use resume_upload, analyze_job, or dispatch_email."}, _pos(1460, 1100)))
+    "message": "Unknown action. Use resume_upload, analyze_job, dispatch_email, or process_inbound."}, _pos(1460, 1300)))
 
 # ═══════════════════════════════════════════════════
 # SECTION 1: RESUME INGESTION
@@ -618,6 +619,368 @@ nodes.append(validate_node("m001", "Validate - Application",
 # This connects to the shared email dispatch chain starting at e000
 
 # ═══════════════════════════════════════════════════
+# SECTION 5: INBOUND EMAIL HANDLING
+# ═══════════════════════════════════════════════════
+Y_I = 1400
+
+nodes.append(pg_query("i000", "Log - Inbound Start",
+    "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, input_summary) "
+    "VALUES ('{{ $json.user_id }}'::uuid, 'inbound_email', '={{ $execution.id }}', "
+    "'STARTED', '{\"thread_id\": \"{{ $json._request_body.data.thread_id }}\"}'::jsonb);",
+    _pos(1460, Y_I)))
+
+# Check if this message was already processed (idempotency)
+nodes.append(pg_query("i001", "Postgres - Check Inbound Dup",
+    "=SELECT inbound_id FROM inbound_email_log WHERE user_id='{{ $json.user_id }}'::uuid "
+    "AND message_id='{{ $json._request_body.data.message_id }}' LIMIT 1;",
+    _pos(1700, Y_I)))
+
+nodes.append(node("i002", "IF - Inbound Already Processed", "if", {
+    "conditions": {"string": [{
+        "value1": "={{ $json.inbound_id }}",
+        "operation": "isNotEmpty",
+    }]}
+}, _pos(1940, Y_I)))
+
+nodes.append(set_node("i003", "Set - Inbound Skipped",
+    {"status": "skipped", "reason": "already_processed"}, _pos(2180, Y_I + 200)))
+
+# Validate inbound payload
+nodes.append(validate_node("i010", "Validate - Inbound Payload",
+    'const body = $("Validate - User Auth").first().json._request_body.data;\n'
+    'if (!body.thread_id) throw new Error("Missing thread_id");\n'
+    'if (!body.message_id) throw new Error("Missing message_id");\n'
+    'if (!body.sender_email) throw new Error("Missing sender_email");\n'
+    'if (!body.email_body) throw new Error("Missing email_body");\n'
+    'const user = $("Validate - User Auth").first().json;\n'
+    'return [{ json: { ...body, user_id: user.user_id, email_mode: user.email_mode } }];',
+    _pos(2180, Y_I)))
+
+# Match to original dispatch
+nodes.append(pg_query("i011", "Postgres - Match Thread",
+    "=SELECT edl.log_id AS dispatch_log_id, edl.job_id, edl.company_id, edl.recipient_email, edl.subject "
+    "FROM email_dispatch_log edl WHERE edl.user_id='{{ $json.user_id }}'::uuid "
+    "AND edl.sent_status='SENT' "
+    "AND (edl.provider_message_id='{{ $json.thread_id }}' OR edl.provider_message_id='{{ $json.message_id }}') "
+    "LIMIT 1;",
+    _pos(2420, Y_I)))
+
+# Classify reply via Ollama
+CLASSIFY_REPLY_PROMPT = (
+    "You are an email reply classifier for job applications. Classify the incoming reply.\\n"
+    'Return STRICT JSON matching this schema exactly:\\n'
+    '{"reply_type":string(REQUIRED, one of: INTERVIEW_INVITE, FOLLOW_UP_REQUIRED, REJECTION, INFORMATION_REQUEST, OTHER),'
+    '"tone":string(REQUIRED, e.g. positive, neutral, negative, formal),'
+    '"urgency_level":string(REQUIRED, one of: HIGH, MEDIUM, LOW),'
+    '"requires_user_action":boolean(REQUIRED),'
+    '"summary":string(1-2 sentences summarizing the reply)}\\n'
+    "Return ONLY valid JSON. No markdown fences."
+)
+nodes.append(ollama_call("i012", "Ollama - Classify Reply", CLASSIFY_REPLY_PROMPT,
+    '={{ JSON.stringify($json.email_body || $("Validate - Inbound Payload").first().json.email_body) }}',
+    _pos(2660, Y_I), temp=0.1))
+
+nodes.append(validate_node("i013", "Validate - Classification",
+    'const resp = $input.first().json;\n'
+    'const content = resp.choices[0].message.content;\n'
+    'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Classification invalid JSON: " + content.substring(0,500)); }\n'
+    'const validTypes = ["INTERVIEW_INVITE","FOLLOW_UP_REQUIRED","REJECTION","INFORMATION_REQUEST","OTHER"];\n'
+    'if (!validTypes.includes(p.reply_type)) throw new Error("Invalid reply_type: " + p.reply_type);\n'
+    'if (typeof p.requires_user_action !== "boolean") p.requires_user_action = false;\n'
+    'const ctx = $("Validate - Inbound Payload").first().json;\n'
+    'const thread = $("Postgres - Match Thread").first().json;\n'
+    'p.user_id = ctx.user_id; p.thread_id = ctx.thread_id; p.message_id = ctx.message_id;\n'
+    'p.sender_email = ctx.sender_email; p.email_body = ctx.email_body; p.email_mode = ctx.email_mode;\n'
+    'p.dispatch_log_id = thread.dispatch_log_id || null; p.job_id = thread.job_id || null;\n'
+    'p.company_id = thread.company_id || null; p.subject = ctx.subject || thread.subject || "";\n'
+    'p._classification_json = JSON.stringify(p);\n'
+    'p._llm_model = resp.model || ""; p._llm_tokens = resp.usage || null;\n'
+    'return [{ json: p }];',
+    _pos(2900, Y_I)))
+
+# Log inbound to DB
+nodes.append(pg_query("i014", "Postgres - Log Inbound",
+    "=INSERT INTO inbound_email_log (execution_uuid, user_id, thread_id, message_id, sender_email, subject, "
+    "raw_email, reply_type, classification_json, dispatch_log_id, job_id, company_id, processed_at) "
+    "VALUES ('={{ $execution.id }}'::uuid, '{{ $json.user_id }}'::uuid, '{{ $json.thread_id }}', "
+    "'{{ $json.message_id }}', '{{ $json.sender_email }}', '{{ $json.subject }}', "
+    "'{{ $json.email_body }}', '{{ $json.reply_type }}', '{{ $json._classification_json }}'::jsonb, "
+    "{{ $json.dispatch_log_id ? \"'\" + $json.dispatch_log_id + \"'::uuid\" : \"NULL\" }}, "
+    "{{ $json.job_id ? \"'\" + $json.job_id + \"'::uuid\" : \"NULL\" }}, "
+    "{{ $json.company_id ? \"'\" + $json.company_id + \"'::uuid\" : \"NULL\" }}, NOW()) "
+    "ON CONFLICT (user_id, message_id) DO NOTHING RETURNING inbound_id;",
+    _pos(3140, Y_I)))
+
+# Route by reply type
+nodes.append(node("i015", "Switch - Reply Type", "switch", {
+    "rules": {"values": [
+        {"conditions": {"conditions": [{"leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}", "rightValue": "INTERVIEW_INVITE", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 0},
+        {"conditions": {"conditions": [{"leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}", "rightValue": "FOLLOW_UP_REQUIRED", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 1},
+        {"conditions": {"conditions": [{"leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}", "rightValue": "INFORMATION_REQUEST", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 1},
+        {"conditions": {"conditions": [{"leftValue": "={{ $(\"Validate - Classification\").first().json.reply_type }}", "rightValue": "REJECTION", "operator": {"type": "string", "operation": "equals"}}]}, "outputIndex": 2},
+    ]},
+    "fallbackOutput": "extra",
+}, _pos(3380, Y_I), version=3))
+
+# ── Branch: FOLLOW_UP / INFORMATION_REQUEST → Generate auto-reply ──
+Y_AR = Y_I + 200
+
+AUTO_REPLY_PROMPT = (
+    "You are a professional job applicant writing a follow-up reply. "
+    "Context: You previously applied for a role and received a response. "
+    "Generate a contextual, professional reply. Keep it concise (80-120 words). "
+    "Be helpful, enthusiastic, and specific.\\n"
+    'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
+    "Return ONLY valid JSON."
+)
+nodes.append(ollama_call("i020", "Ollama - Generate Reply", AUTO_REPLY_PROMPT,
+    '={{ JSON.stringify("Original subject: " + $("Validate - Classification").first().json.subject + "\\nReply type: " + $("Validate - Classification").first().json.reply_type + "\\nIncoming email: " + $("Validate - Classification").first().json.email_body) }}',
+    _pos(3620, Y_AR), temp=0.5))
+
+# Reuse the shared humanization prompt (LLM REUSE STRATEGY)
+HUMANIZE_REPLY_PROMPT = (
+    "You are a human authenticity editor. Make this reply email sound like a real person. "
+    "Vary sentence length, use contractions, add one subtle personal touch.\\n"
+    'Return STRICT JSON: {"ai_detection_score":integer 0-100,"humanized_subject":string(REQUIRED),'
+    '"humanized_body":string(REQUIRED),"changes_made":[string]}\\nReturn ONLY valid JSON.'
+)
+nodes.append(ollama_call("i021", "Ollama - Humanize Reply", HUMANIZE_REPLY_PROMPT,
+    '={{ JSON.stringify($input.first().json.choices[0].message.content) }}',
+    _pos(3860, Y_AR), temp=0.8))
+
+nodes.append(validate_node("i022", "Validate - Reply",
+    'const resp = $input.first().json;\n'
+    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Reply humanize invalid JSON"); }\n'
+    'if (!p.humanized_subject) throw new Error("Missing humanized_subject");\n'
+    'if (!p.humanized_body) throw new Error("Missing humanized_body");\n'
+    'const ctx = $("Validate - Classification").first().json;\n'
+    'p.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\n'
+    'p.recipient_email = ctx.sender_email; p.email_mode = ctx.email_mode;\n'
+    'p.subject = p.humanized_subject; p.body = p.humanized_body;\n'
+    'return [{ json: p }];',
+    _pos(4100, Y_AR)))
+
+# Check AUTO/DRAFT mode before sending reply
+nodes.append(node("i023", "IF - Auto Reply Send", "if", {
+    "conditions": {"string": [{
+        "value1": '={{ $json.email_mode }}',
+        "operation": "equals", "value2": "AUTO",
+    }]}
+}, _pos(4340, Y_AR)))
+
+# Auto reply → feed into shared dispatch chain (reuses rate limit + idempotency + OAuth + send)
+# Connection: i023 true → e000 (Check - Rate Limit)
+
+nodes.append(set_node("i024", "Set - Reply Pending Review",
+    {"status": "pending_review", "module": "inbound_auto_reply",
+     "reply_type": "={{ $(\"Validate - Classification\").first().json.reply_type }}"}, _pos(4580, Y_AR + 200)))
+
+# ── Branch: REJECTION → polite acknowledgment ──
+Y_RJ = Y_I + 400
+
+REJECTION_ACK_PROMPT = (
+    "You are a professional job applicant. Write a brief, polite acknowledgment to a rejection email. "
+    "Express gratitude for their time, wish them well, and leave the door open. Keep it under 60 words.\\n"
+    'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
+    "Return ONLY valid JSON."
+)
+nodes.append(ollama_call("i030", "Ollama - Rejection Ack", REJECTION_ACK_PROMPT,
+    '={{ JSON.stringify("Subject: " + $("Validate - Classification").first().json.subject + "\\nRejection email: " + $("Validate - Classification").first().json.email_body) }}',
+    _pos(3620, Y_RJ), temp=0.4))
+
+nodes.append(validate_node("i031", "Validate - Rejection Ack",
+    'const resp = $input.first().json;\n'
+    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Rejection ack invalid JSON"); }\n'
+    'if (!p.reply_body) throw new Error("Missing reply_body");\n'
+    'const ctx = $("Validate - Classification").first().json;\n'
+    'p.user_id = ctx.user_id; p.job_id = ctx.job_id; p.recipient_email = ctx.sender_email;\n'
+    'p.subject = p.reply_subject || "Re: " + ctx.subject; p.body = p.reply_body;\n'
+    'return [{ json: p }];',
+    _pos(3860, Y_RJ)))
+
+nodes.append(pg_query("i032", "Log - Rejection Processed",
+    "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) "
+    "VALUES ('{{ $(\"Validate - Classification\").first().json.user_id }}'::uuid, 'inbound_rejection', '={{ $execution.id }}', "
+    "'SUCCESS', '{\"reply_type\": \"REJECTION\", \"sender\": \"{{ $(\"Validate - Classification\").first().json.sender_email }}\"}'::jsonb);",
+    _pos(4100, Y_RJ)))
+
+nodes.append(set_node("i033", "Set - Rejection OK",
+    {"status": "rejection_acknowledged", "module": "inbound_email"}, _pos(4340, Y_RJ)))
+
+# ── Branch: OTHER → route to manual review ──
+Y_OT = Y_I + 600
+nodes.append(pg_query("i040", "Log - Other Inbound",
+    "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) "
+    "VALUES ('{{ $(\"Validate - Classification\").first().json.user_id }}'::uuid, 'inbound_other', '={{ $execution.id }}', "
+    "'SUCCESS', '{\"reply_type\": \"OTHER\", \"requires_user_action\": true}'::jsonb);",
+    _pos(3620, Y_OT)))
+
+nodes.append(set_node("i041", "Set - Manual Review Required",
+    {"status": "manual_review", "module": "inbound_email",
+     "message": "Reply classified as OTHER - requires manual review"}, _pos(3860, Y_OT)))
+
+# ═══════════════════════════════════════════════════
+# SECTION 6: INTERVIEW SCHEDULING (GOOGLE CALENDAR)
+# ═══════════════════════════════════════════════════
+Y_IV = Y_I - 200
+
+INTERVIEW_EXTRACT_PROMPT = (
+    "You are an interview details extractor. Extract scheduling information from the email.\\n"
+    'Return STRICT JSON matching this schema exactly:\\n'
+    '{"interview_date":string(REQUIRED, ISO 8601 format YYYY-MM-DD),'
+    '"interview_time":string(REQUIRED, HH:MM 24h format),'
+    '"timezone":string(default "UTC"),'
+    '"interview_mode":string(REQUIRED, one of: VIRTUAL, IN_PERSON, PHONE),'
+    '"meeting_link":string|null,'
+    '"interviewer_name":string|null,'
+    '"interviewer_email":string|null,'
+    '"location":string|null,'
+    '"duration_minutes":integer(default 60),'
+    '"additional_notes":string|null}\\n'
+    "Return ONLY valid JSON. No markdown fences."
+)
+nodes.append(ollama_call("iv000", "Ollama - Extract Interview", INTERVIEW_EXTRACT_PROMPT,
+    '={{ JSON.stringify($("Validate - Classification").first().json.email_body) }}',
+    _pos(3620, Y_IV), temp=0.1))
+
+nodes.append(validate_node("iv001", "Validate - Interview Details",
+    'const resp = $input.first().json;\n'
+    'const content = resp.choices[0].message.content;\n'
+    'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Interview extract invalid JSON: " + content.substring(0,500)); }\n'
+    'if (!p.interview_date || !p.interview_time) throw new Error("Missing interview_date or interview_time");\n'
+    'const validModes = ["VIRTUAL","IN_PERSON","PHONE"];\n'
+    'if (!validModes.includes(p.interview_mode)) p.interview_mode = "VIRTUAL";\n'
+    'p.duration_minutes = p.duration_minutes || 60;\n'
+    'p.timezone = p.timezone || "UTC";\n'
+    'const ctx = $("Validate - Classification").first().json;\n'
+    'p.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\n'
+    'p.sender_email = ctx.sender_email; p.email_mode = ctx.email_mode;\n'
+    'p.subject = ctx.subject;\n'
+    'p.interviewer_email = p.interviewer_email || ctx.sender_email;\n'
+    'p._llm_model = resp.model || "";\n'
+    'return [{ json: p }];',
+    _pos(3860, Y_IV)))
+
+# Check for duplicate interview (idempotency)
+nodes.append(pg_query("iv002", "Postgres - Check Dup Interview",
+    "=SELECT interview_id FROM interview_log WHERE user_id='{{ $json.user_id }}'::uuid "
+    "AND job_id='{{ $json.job_id }}'::uuid "
+    "AND interview_datetime='{{ $json.interview_date }}T{{ $json.interview_time }}:00'::timestamptz LIMIT 1;",
+    _pos(4100, Y_IV)))
+
+nodes.append(node("iv003", "IF - Interview Exists", "if", {
+    "conditions": {"string": [{
+        "value1": "={{ $json.interview_id }}",
+        "operation": "isNotEmpty",
+    }]}
+}, _pos(4340, Y_IV)))
+
+nodes.append(set_node("iv004", "Set - Interview Dup Skipped",
+    {"status": "skipped", "reason": "duplicate_interview"}, _pos(4580, Y_IV - 200)))
+
+# Create Google Calendar Event
+CAL_CREDS = {"googleCalendarOAuth2Api": {"id": "CONFIGURE_ME", "name": "Google Calendar"}}
+
+nodes.append(node("iv005", "Google Calendar - Create Event", "googleCalendar", {
+    "operation": "create",
+    "calendar": {"__rl": True, "value": "primary", "mode": "list"},
+    "start": '={{ $("Validate - Interview Details").first().json.interview_date + "T" + $("Validate - Interview Details").first().json.interview_time + ":00" }}',
+    "end": '={{ (function() { const d = new Date($("Validate - Interview Details").first().json.interview_date + "T" + $("Validate - Interview Details").first().json.interview_time + ":00"); d.setMinutes(d.getMinutes() + ($("Validate - Interview Details").first().json.duration_minutes || 60)); return d.toISOString(); })() }}',
+    "additionalFields": {
+        "summary": '=Interview: {{ $("Validate - Classification").first().json.subject }}',
+        "description": '=Interview Details\\n'
+            'Company: {{ $("Validate - Classification").first().json.company_id }}\\n'
+            'Interviewer: {{ $("Validate - Interview Details").first().json.interviewer_name || "TBD" }}\\n'
+            'Contact: {{ $("Validate - Interview Details").first().json.interviewer_email }}\\n'
+            'Mode: {{ $("Validate - Interview Details").first().json.interview_mode }}\\n'
+            'Link: {{ $("Validate - Interview Details").first().json.meeting_link || "N/A" }}\\n'
+            'Location: {{ $("Validate - Interview Details").first().json.location || "N/A" }}\\n'
+            'Notes: {{ $("Validate - Interview Details").first().json.additional_notes || "None" }}',
+        "attendees": '={{ $("Validate - Interview Details").first().json.interviewer_email }}',
+        "visibility": "private",
+        "reminders": {"reminderValues": [{"method": "popup", "minutes": 30}]},
+        "timeZone": '={{ $("Validate - Interview Details").first().json.timezone || "UTC" }}',
+    },
+}, _pos(4580, Y_IV), version=3, creds=CAL_CREDS))
+
+# Log interview to DB
+nodes.append(pg_query("iv006", "Postgres - Log Interview",
+    "=INSERT INTO interview_log (user_id, job_id, company_id, inbound_id, calendar_event_id, "
+    "interview_datetime, end_datetime, timezone, interview_mode, meeting_link, location, "
+    "interviewer_name, interviewer_email, status, notes) "
+    "VALUES ('{{ $(\"Validate - Interview Details\").first().json.user_id }}'::uuid, "
+    "'{{ $(\"Validate - Interview Details\").first().json.job_id }}'::uuid, "
+    "{{ $(\"Validate - Interview Details\").first().json.company_id ? \"'\" + $(\"Validate - Interview Details\").first().json.company_id + \"'::uuid\" : \"NULL\" }}, "
+    "{{ $(\"Postgres - Log Inbound\").first().json.inbound_id ? \"'\" + $(\"Postgres - Log Inbound\").first().json.inbound_id + \"'::uuid\" : \"NULL\" }}, "
+    "'{{ $json.id || $json.iCalUID || \"\" }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.interview_date }}T{{ $(\"Validate - Interview Details\").first().json.interview_time }}:00'::timestamptz, "
+    "'{{ $(\"Validate - Interview Details\").first().json.interview_date }}T{{ $(\"Validate - Interview Details\").first().json.interview_time }}:00'::timestamptz + INTERVAL '{{ $(\"Validate - Interview Details\").first().json.duration_minutes || 60 }} minutes', "
+    "'{{ $(\"Validate - Interview Details\").first().json.timezone }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.interview_mode }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.meeting_link || \"\" }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.location || \"\" }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.interviewer_name || \"\" }}', "
+    "'{{ $(\"Validate - Interview Details\").first().json.interviewer_email }}', "
+    "'SCHEDULED', '{{ $(\"Validate - Interview Details\").first().json.additional_notes || \"\" }}') "
+    "ON CONFLICT (user_id, job_id, interview_datetime) DO NOTHING RETURNING interview_id;",
+    _pos(4820, Y_IV)))
+
+# Update job status to INTERVIEW
+nodes.append(pg_query("iv007", "Postgres - Update Job Status",
+    "=UPDATE jobs SET status='INTERVIEW', updated_at=NOW() "
+    "WHERE job_id='{{ $(\"Validate - Interview Details\").first().json.job_id }}'::uuid;",
+    _pos(5060, Y_IV)))
+
+# Generate interview confirmation email
+CONFIRM_PROMPT = (
+    "You are a professional job applicant. Write a concise interview confirmation email (80-120 words). "
+    "Confirm date, time, and mode. Express enthusiasm. Ask if anything needs to be prepared.\\n"
+    'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
+    "Return ONLY valid JSON."
+)
+nodes.append(ollama_call("iv008", "Ollama - Confirmation Email", CONFIRM_PROMPT,
+    '={{ JSON.stringify("Interview date: " + $("Validate - Interview Details").first().json.interview_date + " " + $("Validate - Interview Details").first().json.interview_time + "\\nMode: " + $("Validate - Interview Details").first().json.interview_mode + "\\nInterviewer: " + ($("Validate - Interview Details").first().json.interviewer_name || "Hiring Manager") + "\\nOriginal email: " + $("Validate - Classification").first().json.email_body) }}',
+    _pos(5300, Y_IV), temp=0.5))
+
+# Humanize confirmation (REUSES shared humanization pattern)
+nodes.append(ollama_call("iv009", "Ollama - Humanize Confirmation", HUMANIZE_REPLY_PROMPT,
+    '={{ JSON.stringify($input.first().json.choices[0].message.content) }}',
+    _pos(5540, Y_IV), temp=0.8))
+
+nodes.append(validate_node("iv010", "Validate - Confirmation",
+    'const resp = $input.first().json;\n'
+    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Confirmation humanize invalid JSON"); }\n'
+    'if (!p.humanized_body) throw new Error("Missing humanized_body");\n'
+    'const ctx = $("Validate - Interview Details").first().json;\n'
+    'p.user_id = ctx.user_id; p.job_id = ctx.job_id;\n'
+    'p.recipient_email = ctx.interviewer_email;\n'
+    'p.subject = p.humanized_subject || "Re: " + ctx.subject; p.body = p.humanized_body;\n'
+    'p.email_mode = ctx.email_mode;\n'
+    'return [{ json: p }];',
+    _pos(5780, Y_IV)))
+
+# Check AUTO mode for confirmation send
+nodes.append(node("iv011", "IF - Auto Confirm Send", "if", {
+    "conditions": {"string": [{
+        "value1": '={{ $json.email_mode }}',
+        "operation": "equals", "value2": "AUTO",
+    }]}
+}, _pos(6020, Y_IV)))
+
+nodes.append(set_node("iv012", "Set - Confirm Pending Review",
+    {"status": "pending_review", "module": "interview_confirmation"}, _pos(6260, Y_IV - 200)))
+
+nodes.append(pg_query("iv013", "Log - Interview Success",
+    "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) "
+    "VALUES ('{{ $(\"Validate - Interview Details\").first().json.user_id }}'::uuid, 'interview_scheduling', '={{ $execution.id }}', "
+    "'SUCCESS', '{\"interview_date\": \"{{ $(\"Validate - Interview Details\").first().json.interview_date }}\", "
+    "\"mode\": \"{{ $(\"Validate - Interview Details\").first().json.interview_mode }}\"}'::jsonb);",
+    _pos(6260, Y_IV)))
+
+nodes.append(set_node("iv014", "Set - Interview Scheduled OK",
+    {"status": "interview_scheduled", "module": "interview_scheduling"}, _pos(6500, Y_IV)))
+
+# ═══════════════════════════════════════════════════
 # CONNECTIONS
 # ═══════════════════════════════════════════════════
 
@@ -631,7 +994,7 @@ add_conn("Webhook", ["IF - Auth Secret"])
 add_conn("IF - Auth Secret", ["Postgres - Validate User"], ["Set - 401"])
 add_conn("Postgres - Validate User", ["Validate - User Auth"])
 add_conn("Validate - User Auth", ["Switch - Router"])
-add_conn("Switch - Router", ["Log - Resume Start"], ["Log - Job Start"], ["Postgres - Fetch Application"], ["Set - 400 Bad Action"])
+add_conn("Switch - Router", ["Log - Resume Start"], ["Log - Job Start"], ["Postgres - Fetch Application"], ["Log - Inbound Start"], ["Set - 400 Bad Action"])
 
 # Resume branch
 add_conn("Log - Resume Start", ["Exec - Extract Resume"])
@@ -668,7 +1031,7 @@ add_conn("Validate - Email", ["Postgres - Save Email Draft"])
 add_conn("Postgres - Save Email Draft", ["IF - Auto Send"])
 add_conn("IF - Auto Send", ["Check - Rate Limit"], ["Log - Draft Saved"])
 
-# Email dispatch chain (shared by auto-send and manual dispatch)
+# Email dispatch chain (shared by auto-send, manual dispatch, auto-reply, and confirmations)
 add_conn("Check - Rate Limit", ["Postgres - Count Recent Sends"])
 add_conn("Postgres - Count Recent Sends", ["Validate - Rate Limit"])
 add_conn("Validate - Rate Limit", ["Compute - Email Hash"])
@@ -694,6 +1057,51 @@ add_conn("Log - Draft Saved", ["Set - Draft OK"])
 # Manual dispatch branch
 add_conn("Postgres - Fetch Application", ["Validate - Application"])
 add_conn("Validate - Application", ["Check - Rate Limit"])
+
+# Inbound email branch
+add_conn("Log - Inbound Start", ["Postgres - Check Inbound Dup"])
+add_conn("Postgres - Check Inbound Dup", ["IF - Inbound Already Processed"])
+add_conn("IF - Inbound Already Processed", ["Set - Inbound Skipped"], ["Validate - Inbound Payload"])
+add_conn("Validate - Inbound Payload", ["Postgres - Match Thread"])
+add_conn("Postgres - Match Thread", ["Ollama - Classify Reply"])
+add_conn("Ollama - Classify Reply", ["Validate - Classification"])
+add_conn("Validate - Classification", ["Postgres - Log Inbound"])
+add_conn("Postgres - Log Inbound", ["Switch - Reply Type"])
+add_conn("Switch - Reply Type",
+    ["Ollama - Extract Interview"],       # INTERVIEW_INVITE
+    ["Ollama - Generate Reply"],           # FOLLOW_UP / INFO_REQUEST
+    ["Ollama - Rejection Ack"],            # REJECTION
+    ["Log - Other Inbound"],               # OTHER (fallback)
+)
+
+# Auto-reply chain (FOLLOW_UP / INFO_REQUEST)
+add_conn("Ollama - Generate Reply", ["Ollama - Humanize Reply"])
+add_conn("Ollama - Humanize Reply", ["Validate - Reply"])
+add_conn("Validate - Reply", ["IF - Auto Reply Send"])
+add_conn("IF - Auto Reply Send", ["Check - Rate Limit"], ["Set - Reply Pending Review"])
+
+# Rejection branch
+add_conn("Ollama - Rejection Ack", ["Validate - Rejection Ack"])
+add_conn("Validate - Rejection Ack", ["Log - Rejection Processed"])
+add_conn("Log - Rejection Processed", ["Set - Rejection OK"])
+
+# Other branch
+add_conn("Log - Other Inbound", ["Set - Manual Review Required"])
+
+# Interview scheduling branch
+add_conn("Ollama - Extract Interview", ["Validate - Interview Details"])
+add_conn("Validate - Interview Details", ["Postgres - Check Dup Interview"])
+add_conn("Postgres - Check Dup Interview", ["IF - Interview Exists"])
+add_conn("IF - Interview Exists", ["Set - Interview Dup Skipped"], ["Google Calendar - Create Event"])
+add_conn("Google Calendar - Create Event", ["Postgres - Log Interview"])
+add_conn("Postgres - Log Interview", ["Postgres - Update Job Status"])
+add_conn("Postgres - Update Job Status", ["Ollama - Confirmation Email"])
+add_conn("Ollama - Confirmation Email", ["Ollama - Humanize Confirmation"])
+add_conn("Ollama - Humanize Confirmation", ["Validate - Confirmation"])
+add_conn("Validate - Confirmation", ["IF - Auto Confirm Send"])
+add_conn("IF - Auto Confirm Send", ["Check - Rate Limit"], ["Set - Confirm Pending Review"])
+add_conn("Set - Confirm Pending Review", ["Log - Interview Success"])
+add_conn("Log - Interview Success", ["Set - Interview Scheduled OK"])
 
 # ═══════════════════════════════════════════════════
 # ASSEMBLE & OUTPUT

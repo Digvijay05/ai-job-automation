@@ -252,3 +252,86 @@ CREATE INDEX IF NOT EXISTS idx_logs_user ON workflow_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_logs_module ON workflow_logs(module_name);
 CREATE INDEX IF NOT EXISTS idx_logs_status ON workflow_logs(status);
 CREATE INDEX IF NOT EXISTS idx_logs_created ON workflow_logs(created_at);
+
+-- ──────────────────────────────────────────────────
+-- 9. Inbound Email Log (Reply Classification & Tracking)
+-- ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS inbound_email_log (
+    inbound_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    execution_uuid     UUID NOT NULL,
+    user_id            UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    thread_id          VARCHAR(255) NOT NULL,
+    message_id         VARCHAR(255) NOT NULL,
+    sender_email       VARCHAR(255) NOT NULL,
+    subject            VARCHAR(500),
+    raw_email          TEXT,
+
+    -- LLM Classification Result
+    reply_type         VARCHAR(30) NOT NULL
+                         CHECK (reply_type IN (
+                           'INTERVIEW_INVITE','FOLLOW_UP_REQUIRED','REJECTION',
+                           'INFORMATION_REQUEST','OTHER'
+                         )),
+    classification_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    -- Linkage to original dispatch
+    dispatch_log_id    UUID REFERENCES email_dispatch_log(log_id) ON DELETE SET NULL,
+    job_id             UUID REFERENCES jobs(job_id) ON DELETE SET NULL,
+    company_id         UUID REFERENCES companies(company_id) ON DELETE SET NULL,
+
+    -- Response tracking
+    auto_reply_sent    BOOLEAN NOT NULL DEFAULT FALSE,
+    auto_reply_body    TEXT,
+    processed_at       TIMESTAMP WITH TIME ZONE,
+    created_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    -- Idempotency: one classification per message
+    UNIQUE(user_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbound_user ON inbound_email_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_thread ON inbound_email_log(thread_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_reply_type ON inbound_email_log(reply_type);
+CREATE INDEX IF NOT EXISTS idx_inbound_created ON inbound_email_log(created_at);
+
+-- ──────────────────────────────────────────────────
+-- 10. Interview Log (Calendar Events & Scheduling)
+-- ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS interview_log (
+    interview_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id            UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    job_id             UUID NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+    company_id         UUID REFERENCES companies(company_id) ON DELETE SET NULL,
+    inbound_id         UUID REFERENCES inbound_email_log(inbound_id) ON DELETE SET NULL,
+
+    -- Calendar Event Details
+    calendar_event_id  VARCHAR(255),
+    interview_datetime TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_datetime       TIMESTAMP WITH TIME ZONE,
+    timezone           VARCHAR(50) NOT NULL DEFAULT 'UTC',
+    interview_mode     VARCHAR(20) NOT NULL DEFAULT 'VIRTUAL'
+                         CHECK (interview_mode IN ('VIRTUAL','IN_PERSON','PHONE')),
+    meeting_link       VARCHAR(500),
+    location           VARCHAR(500),
+
+    -- Interviewer Info
+    interviewer_name   VARCHAR(255),
+    interviewer_email  VARCHAR(255),
+
+    -- Status
+    status             VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED'
+                         CHECK (status IN ('SCHEDULED','CONFIRMED','CANCELLED','COMPLETED','NO_SHOW')),
+    confirmation_sent  BOOLEAN NOT NULL DEFAULT FALSE,
+    notes              TEXT,
+
+    created_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    -- Idempotency: prevent duplicate events for same user+job+time
+    UNIQUE(user_id, job_id, interview_datetime)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interview_user ON interview_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_interview_job ON interview_log(job_id);
+CREATE INDEX IF NOT EXISTS idx_interview_status ON interview_log(status);
+CREATE INDEX IF NOT EXISTS idx_interview_datetime ON interview_log(interview_datetime);
