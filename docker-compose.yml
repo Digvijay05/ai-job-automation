@@ -1,0 +1,119 @@
+version: "3.8"
+
+services:
+  # ─── n8n Orchestrator ───────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-automation
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - GENERIC_TIMEZONE=Asia/Kolkata
+      - N8N_LOG_LEVEL=info
+      - WEBHOOK_URL=${NGROK_PUBLIC_URL}
+      # ─── App-Level Secrets (accessed via $env in workflow) ───
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - OLLAMA_API_URL=${OLLAMA_API_URL}
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - OLLAMA_TIMEOUT_MS=${OLLAMA_TIMEOUT_MS:-120000}
+      - OLLAMA_MAX_TOKENS=${OLLAMA_MAX_TOKENS:-4096}
+      - OLLAMA_MAX_RETRIES=${OLLAMA_MAX_RETRIES:-2}
+      - SCRAPER_TIMEOUT_S=${SCRAPER_TIMEOUT_S:-45}
+      # ─── Multi-User & Email Dispatch ───
+      - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY}
+      - GMAIL_CLIENT_ID=${GMAIL_CLIENT_ID}
+      - GMAIL_CLIENT_SECRET=${GMAIL_CLIENT_SECRET}
+      - OUTLOOK_CLIENT_ID=${OUTLOOK_CLIENT_ID}
+      - OUTLOOK_CLIENT_SECRET=${OUTLOOK_CLIENT_SECRET}
+      - OUTLOOK_TENANT_ID=${OUTLOOK_TENANT_ID:-common}
+      - EMAIL_SEND_DELAY_MS=${EMAIL_SEND_DELAY_MS:-3000}
+      - EMAIL_BATCH_SIZE=${EMAIL_BATCH_SIZE:-5}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./src/scripts:/data/scripts:ro
+      - ./src/scripts:/app/scripts:ro
+      - ./files:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automation-net
+
+  # ─── PostgreSQL ─────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: automation-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - automation-net
+
+  # ─── Python/Selenium Worker ─────────────────────
+  selenium-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.selenium
+    container_name: selenium-worker
+    restart: unless-stopped
+    volumes:
+      - ./src/scripts:/app/scripts:ro
+      - ./files:/app/files
+    environment:
+      - SCRAPER_REQUEST_DELAY_MIN=${SCRAPER_REQUEST_DELAY_MIN:-2}
+      - SCRAPER_REQUEST_DELAY_MAX=${SCRAPER_REQUEST_DELAY_MAX:-5}
+      - SCRAPER_PAGE_LOAD_TIMEOUT=${SCRAPER_TIMEOUT_S:-45}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automation-net
+    # Keep alive for n8n Execute Command calls
+    command: [ "tail", "-f", "/dev/null" ]
+
+  # ─── Ngrok Tunnel ───────────────────────────────
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok-tunnel
+    restart: unless-stopped
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command: http n8n:5678
+    ports:
+      - "4040:4040"
+    depends_on:
+      - n8n
+    networks:
+      - automation-net
+
+volumes:
+  n8n_data:
+  postgres_data:
+
+
+networks:
+  automation-net:
+    driver: bridge
