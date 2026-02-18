@@ -19,6 +19,7 @@ services:
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - GENERIC_TIMEZONE=Asia/Kolkata
       - N8N_LOG_LEVEL=info
+      - N8N_AI_CORE_ENABLED=true
       - WEBHOOK_URL=${NGROK_PUBLIC_URL}
       # ─── App-Level Secrets (accessed via $env in workflow) ───
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
@@ -102,6 +103,7 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
