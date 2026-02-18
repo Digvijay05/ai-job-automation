@@ -43,12 +43,12 @@ def node(nid: str, name: str, ntype: str, params: dict, pos: list[int],
     return n
 
 PG = {"postgres": {"id": "CONFIGURE_ME", "name": "Postgres"}}
-OLLAMA = {"httpHeaderAuth": {"id": "CONFIGURE_ME", "name": "Ollama API Key"}}
 GMAIL_CREDS = {"gmailOAuth2": {"id": "CONFIGURE_ME", "name": "Gmail OAuth2"}}
 CAL_CREDS = {"googleCalendarOAuth2Api": {"id": "CONFIGURE_ME", "name": "Google Calendar"}}
 
 def ollama_call(nid: str, name: str, system_prompt: str, user_expr: str,
                 pos: list[int], temp: float = 0.1) -> dict:
+    """Build an Ollama LLM call via HTTP Request (no auth, Docker-local)."""
     body = (
         '={"model":"{{ $env.OLLAMA_MODEL }}",'
         '"max_tokens":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},'
@@ -59,11 +59,9 @@ def ollama_call(nid: str, name: str, system_prompt: str, user_expr: str,
     return node(nid, name, "httpRequest", {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": True, "specifyBody": "json", "jsonBody": body,
         "options": {"timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"},
-    }, pos, version=4, creds=OLLAMA)
+    }, pos, version=4)
 
 def validate_node(nid: str, name: str, js: str, pos: list[int]) -> dict:
     return node(nid, name, "code", {"jsCode": js}, pos, version=2)

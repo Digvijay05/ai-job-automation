@@ -22,19 +22,17 @@ services:
       - WEBHOOK_URL=${NGROK_PUBLIC_URL}
       # ─── App-Level Secrets (accessed via $env in workflow) ───
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-      - OLLAMA_API_URL=${OLLAMA_API_URL}
-      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - OLLAMA_API_URL=http://ollama:11434/v1
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
       - OLLAMA_TIMEOUT_MS=${OLLAMA_TIMEOUT_MS:-120000}
       - OLLAMA_MAX_TOKENS=${OLLAMA_MAX_TOKENS:-4096}
       - OLLAMA_MAX_RETRIES=${OLLAMA_MAX_RETRIES:-2}
       - SCRAPER_TIMEOUT_S=${SCRAPER_TIMEOUT_S:-45}
-      # ─── Multi-User & Email Dispatch ───
+      # ─── Multi-User & Email Dispatch (Gmail-Only) ───
       - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY}
       - GMAIL_CLIENT_ID=${GMAIL_CLIENT_ID}
       - GMAIL_CLIENT_SECRET=${GMAIL_CLIENT_SECRET}
-      - OUTLOOK_CLIENT_ID=${OUTLOOK_CLIENT_ID}
-      - OUTLOOK_CLIENT_SECRET=${OUTLOOK_CLIENT_SECRET}
-      - OUTLOOK_TENANT_ID=${OUTLOOK_TENANT_ID:-common}
       - EMAIL_SEND_DELAY_MS=${EMAIL_SEND_DELAY_MS:-3000}
       - EMAIL_BATCH_SIZE=${EMAIL_BATCH_SIZE:-5}
     volumes:
@@ -44,6 +42,8 @@ services:
       - ./files:/data/files
     depends_on:
       postgres:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     networks:
       - automation-net
@@ -92,6 +92,33 @@ services:
     # Keep alive for n8n Execute Command calls
     command: [ "tail", "-f", "/dev/null" ]
 
+  # ─── Ollama LLM Service ─────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - automation-net
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
   # ─── Ngrok Tunnel ───────────────────────────────
   ngrok:
     image: ngrok/ngrok:latest
@@ -99,7 +126,7 @@ services:
     restart: unless-stopped
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    command: http n8n:5678
+    command: http n8n-automation:5678
     ports:
       - "4040:4040"
     depends_on:
@@ -110,6 +137,7 @@ services:
 volumes:
   n8n_data:
   postgres_data:
+  ollama_data:
 
 
 networks:

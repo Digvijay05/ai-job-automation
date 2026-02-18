@@ -262,8 +262,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a resume data extractor. Extract STRICT JSON matching this schema exactly:\\\\n{\\\"full_name\\\":string(REQUIRED),\\\"email\\\":string(REQUIRED),\\\"phone\\\":string|null,\\\"skills\\\":[string](REQUIRED,non-empty),\\\"experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"description\\\":string}],\\\"projects\\\":[{\\\"name\\\":string,\\\"description\\\":string,\\\"technologies\\\":[string]}],\\\"education\\\":[{\\\"degree\\\":string,\\\"institution\\\":string,\\\"year\\\":string}],\\\"certifications\\\":[string],\\\"preferred_roles\\\":[string]}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
@@ -278,13 +276,7 @@
       "position": [
         2180,
         200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -419,8 +411,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a job posting normalizer. Extract STRICT JSON:\\\\n{\\\"company_name\\\":string(REQUIRED),\\\"industry\\\":string|null,\\\"location\\\":string|null,\\\"job_title\\\":string(REQUIRED),\\\"required_skills\\\":[string](REQUIRED),\\\"experience_level\\\":string|null,\\\"employment_type\\\":string|null,\\\"description_summary\\\":string(2-3 sentences,REQUIRED),\\\"tech_stack\\\":[string],\\\"hr_contact_name\\\":string|null,\\\"hr_email\\\":string|null}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
@@ -435,13 +425,7 @@
       "position": [
         2180,
         600
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -513,8 +497,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a career strategist. Analyze candidate-job fit. Return STRICT JSON:\\\\n{\\\"fit_score\\\":integer 0-100(REQUIRED),\\\"gap_analysis\\\":string(REQUIRED),\\\"alignment_report\\\":string(REQUIRED),\\\"strategic_angle\\\":string(2-3 sentences,REQUIRED),\\\"recommended_keywords\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"CANDIDATE:\\n\" + JSON.stringify($json.user) + \"\\n\\nJOB:\\n\" + JSON.stringify($json.job)) }}}]}",
@@ -529,13 +511,7 @@
       "position": [
         3380,
         600
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -595,8 +571,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.3,\"messages\":[{\"role\":\"system\",\"content\":\"You are an ATS resume optimizer. Rewrite the resume for the target job. Rules: 1) Rewrite summary. 2) Reword experience with JD keywords. 3) Reorder skills. 4) Quantify achievements. 5) Do NOT fabricate.\\\\nReturn STRICT JSON: {\\\"tailored_summary\\\":string(REQUIRED),\\\"tailored_experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"bullets\\\":[string]}](REQUIRED),\\\"tailored_skills\\\":[string](REQUIRED),\\\"ats_score_estimate\\\":integer 0-100}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"Resume: \" + JSON.stringify($(\"Validate - Fit\").first().json.user) + \"\\nJob: \" + JSON.stringify($(\"Validate - Fit\").first().json.job) + \"\\nAngle: \" + $(\"Validate - Fit\").first().json.strategic_angle) }}}]}",
@@ -611,13 +585,7 @@
       "position": [
         4340,
         420
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -636,8 +604,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.7,\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI content humanizer. Rewrite to sound naturally human: vary sentence length, use contractions, remove buzzword stacking.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_text\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json._raw) }}}]}",
@@ -652,13 +618,7 @@
       "position": [
         4820,
         420
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -697,8 +657,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a cold outreach email specialist. Write a personalized job application email. Reference specific company details, genuine interest, value proposition, clear CTA.\\\\nReturn STRICT JSON: {\\\"subject_line\\\":string(REQUIRED),\\\"email_body\\\":string(150-200 words,REQUIRED),\\\"cta\\\":string}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"To: \" + $(\"Validate - Humanized Resume\").first().json.hr_contact_name + \" at \" + $(\"Validate - Humanized Resume\").first().json.company_name + \"\\nRole: \" + $(\"Validate - Humanized Resume\").first().json.job_title + \"\\nAngle: \" + $(\"Validate - Humanized Resume\").first().json.strategic_angle) }}}]}",
@@ -713,20 +671,12 @@
       "position": [
         5540,
         420
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this cold email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
@@ -741,13 +691,7 @@
       "position": [
         5780,
         420
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -1439,8 +1383,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant writing a follow-up reply. Context: You previously applied for a role and received a response. Generate a contextual, professional reply. Keep it concise (80-120 words). Be helpful, enthusiastic, and specific.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Original subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nReply type: \" + $(\"Validate - Classification\").first().json.reply_type + \"\\nIncoming email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
@@ -1455,20 +1397,12 @@
       "position": [
         3620,
         1600
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
@@ -1483,13 +1417,7 @@
       "position": [
         3860,
         1600
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -1559,8 +1487,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.4,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a brief, polite acknowledgment to a rejection email. Express gratitude for their time, wish them well, and leave the door open. Keep it under 60 words.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nRejection email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
@@ -1575,13 +1501,7 @@
       "position": [
         3620,
         1800
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -1696,8 +1616,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are an interview details extractor. Extract scheduling information from the email.\\\\nReturn STRICT JSON matching this schema exactly:\\\\n{\\\"interview_date\\\":string(REQUIRED, ISO 8601 format YYYY-MM-DD),\\\"interview_time\\\":string(REQUIRED, HH:MM 24h format),\\\"timezone\\\":string(default \\\"UTC\\\"),\\\"interview_mode\\\":string(REQUIRED, one of: VIRTUAL, IN_PERSON, PHONE),\\\"meeting_link\\\":string|null,\\\"interviewer_name\\\":string|null,\\\"interviewer_email\\\":string|null,\\\"location\\\":string|null,\\\"duration_minutes\\\":integer(default 60),\\\"additional_notes\\\":string|null}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($(\"Validate - Classification\").first().json.email_body) }}}]}",
@@ -1712,13 +1630,7 @@
       "position": [
         3620,
         1200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -1884,8 +1796,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a concise interview confirmation email (80-120 words). Confirm date, time, and mode. Express enthusiasm. Ask if anything needs to be prepared.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Interview date: \" + $(\"Validate - Interview Details\").first().json.interview_date + \" \" + $(\"Validate - Interview Details\").first().json.interview_time + \"\\nMode: \" + $(\"Validate - Interview Details\").first().json.interview_mode + \"\\nInterviewer: \" + ($(\"Validate - Interview Details\").first().json.interviewer_name || \"Hiring Manager\") + \"\\nOriginal email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
@@ -1900,20 +1810,12 @@
       "position": [
         5300,
         1200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
@@ -1928,13 +1830,7 @@
       "position": [
         5540,
         1200
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama API Key"
-        }
-      }
+      ]
     },
     {
       "parameters": {
