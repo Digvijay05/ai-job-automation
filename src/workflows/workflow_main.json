@@ -1,0 +1,1926 @@
+{
+  "name": "Master Workflow - Multi-User Job Automation (Production)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "process",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "w001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.headers[\"x-automation-secret\"] }}",
+              "operation": "equals",
+              "value2": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        }
+      },
+      "id": "w002",
+      "name": "IF - Auth Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        440,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "Unauthorized: invalid x-automation-secret"
+            }
+          ],
+          "number": [
+            {
+              "name": "statusCode",
+              "value": 401
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "w003",
+      "name": "Set - 401",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        700,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT user_id, full_name, email, email_mode, hourly_email_limit, daily_email_limit, api_key_hash FROM users WHERE user_id = '{{ $json.headers[\"x-user-id\"] }}'::uuid LIMIT 1;"
+      },
+      "id": "w004",
+      "name": "Postgres - Validate User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        700,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = $input.first().json;\nif (!user || !user.user_id) throw new Error(\"User not found: \" + $(\"Webhook\").first().json.headers[\"x-user-id\"]);\nconst apiKey = $(\"Webhook\").first().json.headers[\"x-user-api-key\"] || \"\";\nif (!user.api_key_hash) { /* first-time user, skip key check */ }\nelse if (apiKey !== user.api_key_hash) throw new Error(\"Invalid API key for user \" + user.user_id);\nreturn [{ json: { ...user, _request_body: $(\"Webhook\").first().json.body } }];"
+      },
+      "id": "w005",
+      "name": "Validate - User Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._request_body.action }}",
+                    "rightValue": "resume_upload",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 0
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._request_body.action }}",
+                    "rightValue": "analyze_job",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 1
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._request_body.action }}",
+                    "rightValue": "dispatch_email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputIndex": 2
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "w010",
+      "name": "Switch - Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1200,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "Unknown action. Use resume_upload, analyze_job, or dispatch_email."
+            }
+          ],
+          "number": [
+            {
+              "name": "statusCode",
+              "value": 400
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "w011",
+      "name": "Set - 400 Bad Action",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        1460,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (request_id, user_id, module_name, execution_id, status, input_summary) VALUES (gen_random_uuid(), '{{ $json.user_id }}'::uuid, 'resume_ingestion', '={{ $execution.id }}', 'STARTED', '{\"file_path\": \"{{ $json._request_body.data.file_path }}\"}'::jsonb);"
+      },
+      "id": "r000",
+      "name": "Log - Resume Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=python3 /app/scripts/resume_text.py --file \"{{ $(\"Validate - User Auth\").first().json._request_body.data.file_path }}\""
+      },
+      "id": "r100",
+      "name": "Exec - Extract Resume",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.stdout;\nconst parsed = JSON.parse(raw);\nif (parsed.error) throw new Error(\"Resume extraction failed: \" + parsed.error);\nif (!parsed.raw_text || parsed.char_count < 100) throw new Error(\"Resume text too short: \" + parsed.char_count);\nreturn [{ json: parsed }];"
+      },
+      "id": "r101",
+      "name": "Validate - Resume Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a resume data extractor. Extract STRICT JSON matching this schema exactly:\\\\n{\\\"full_name\\\":string(REQUIRED),\\\"email\\\":string(REQUIRED),\\\"phone\\\":string|null,\\\"skills\\\":[string](REQUIRED,non-empty),\\\"experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"description\\\":string}],\\\"projects\\\":[{\\\"name\\\":string,\\\"description\\\":string,\\\"technologies\\\":[string]}],\\\"education\\\":[{\\\"degree\\\":string,\\\"institution\\\":string,\\\"year\\\":string}],\\\"certifications\\\":[string],\\\"preferred_roles\\\":[string]}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "r102",
+      "name": "Ollama - Structure Resume",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2180,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.full_name) throw new Error(\"Missing full_name\");\nif (!parsed.email || !parsed.email.includes(\"@\")) throw new Error(\"Missing/invalid email\");\nif (!Array.isArray(parsed.skills) || parsed.skills.length === 0) throw new Error(\"skills must be non-empty array\");\nparsed.raw_resume_text = $(\"Validate - Resume Text\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nparsed._llm_tokens = resp.usage || null;\nparsed._user_id = $(\"Validate - User Auth\").first().json.user_id;\nreturn [{ json: parsed }];"
+      },
+      "id": "r103",
+      "name": "Validate - Resume Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE users SET full_name='{{ $json.full_name }}', phone='{{ $json.phone }}', skills='{{ JSON.stringify($json.skills) }}'::jsonb, experience='{{ JSON.stringify($json.experience) }}'::jsonb, projects='{{ JSON.stringify($json.projects) }}'::jsonb, education='{{ JSON.stringify($json.education) }}'::jsonb, certifications='{{ JSON.stringify($json.certifications) }}'::jsonb, preferred_roles='{{ JSON.stringify($json.preferred_roles) }}'::jsonb, raw_resume_text='{{ $json.raw_resume_text }}', updated_at=NOW() WHERE user_id='{{ $json._user_id }}'::uuid RETURNING user_id;"
+      },
+      "id": "r104",
+      "name": "Postgres - Upsert User Resume",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, llm_model_used, token_usage) VALUES ('{{ $json.user_id }}'::uuid, 'resume_ingestion', '={{ $execution.id }}', 'SUCCESS', '={{ $(\"Validate - Resume Schema\").first().json._llm_model }}', '={{ JSON.stringify($(\"Validate - Resume Schema\").first().json._llm_tokens) }}'::jsonb);"
+      },
+      "id": "r105",
+      "name": "Log - Resume Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "module",
+              "value": "resume_ingestion"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "r106",
+      "name": "Set - Resume OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        3140,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, input_summary) VALUES ('{{ $json.user_id }}'::uuid, 'job_pipeline', '={{ $execution.id }}', 'STARTED', '{\"job_url\": \"{{ $json._request_body.data.job_url }}\"}'::jsonb);"
+      },
+      "id": "j000",
+      "name": "Log - Job Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=python3 /app/scripts/selenium_scraper.py --url \"{{ $(\"Validate - User Auth\").first().json._request_body.data.job_url }}\" --type job"
+      },
+      "id": "j100",
+      "name": "Exec - Scrape Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.stdout;\nconst parsed = JSON.parse(raw);\nif (parsed.error) throw new Error(\"Scraper error: \" + parsed.error);\nif (!parsed.raw_text || parsed.raw_text.length < 50) throw new Error(\"Scraped text too short\");\nreturn [{ json: parsed }];"
+      },
+      "id": "j101",
+      "name": "Validate - Scrape",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a job posting normalizer. Extract STRICT JSON:\\\\n{\\\"company_name\\\":string(REQUIRED),\\\"industry\\\":string|null,\\\"location\\\":string|null,\\\"job_title\\\":string(REQUIRED),\\\"required_skills\\\":[string](REQUIRED),\\\"experience_level\\\":string|null,\\\"employment_type\\\":string|null,\\\"description_summary\\\":string(2-3 sentences,REQUIRED),\\\"tech_stack\\\":[string],\\\"hr_contact_name\\\":string|null,\\\"hr_email\\\":string|null}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "j102",
+      "name": "Ollama - Normalize Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2180,
+        600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM normalize invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.company_name) throw new Error(\"Missing company_name\");\nif (!parsed.job_title) throw new Error(\"Missing job_title\");\nif (!Array.isArray(parsed.required_skills)) parsed.required_skills = [];\nparsed.job_url = $(\"Validate - Scrape\").first().json.job_url;\nparsed.raw_text = $(\"Validate - Scrape\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nreturn [{ json: parsed }];"
+      },
+      "id": "j103",
+      "name": "Validate - Job Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO companies (company_name, industry, location, hr_contact_name, hr_email, tech_stack, last_scraped_at) VALUES ('{{ $json.company_name }}','{{ $json.industry }}','{{ $json.location }}','{{ $json.hr_contact_name }}','{{ $json.hr_email }}','{{ JSON.stringify($json.tech_stack) }}'::jsonb, NOW()) ON CONFLICT (company_name) DO UPDATE SET industry=EXCLUDED.industry, hr_contact_name=EXCLUDED.hr_contact_name, hr_email=EXCLUDED.hr_email, tech_stack=EXCLUDED.tech_stack, last_scraped_at=NOW() RETURNING company_id;"
+      },
+      "id": "j104",
+      "name": "Postgres - Upsert Company",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO jobs (company_id, title, job_url, description_raw, description_summary, required_skills, experience_level, employment_type, location) VALUES ('{{ $json.company_id }}'::uuid, '{{ $(\"Validate - Job Schema\").first().json.job_title }}', '{{ $(\"Validate - Job Schema\").first().json.job_url }}', '{{ $(\"Validate - Job Schema\").first().json.raw_text }}', '{{ $(\"Validate - Job Schema\").first().json.description_summary }}', '{{ JSON.stringify($(\"Validate - Job Schema\").first().json.required_skills) }}'::jsonb, '{{ $(\"Validate - Job Schema\").first().json.experience_level }}', '{{ $(\"Validate - Job Schema\").first().json.employment_type }}', '{{ $(\"Validate - Job Schema\").first().json.location }}') ON CONFLICT (job_url) DO UPDATE SET description_raw=EXCLUDED.description_raw, description_summary=EXCLUDED.description_summary, required_skills=EXCLUDED.required_skills, updated_at=NOW() RETURNING job_id;"
+      },
+      "id": "j105",
+      "name": "Postgres - Upsert Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = $(\"Validate - User Auth\").first().json;\nconst job = $(\"Validate - Job Schema\").first().json;\nconst job_id = $(\"Postgres - Upsert Job\").first().json.job_id;\nconst company_id = $(\"Postgres - Upsert Company\").first().json.company_id;\nreturn [{ json: { user, job, job_id, company_id } }];"
+      },
+      "id": "j107",
+      "name": "Merge - Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3140,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a career strategist. Analyze candidate-job fit. Return STRICT JSON:\\\\n{\\\"fit_score\\\":integer 0-100(REQUIRED),\\\"gap_analysis\\\":string(REQUIRED),\\\"alignment_report\\\":string(REQUIRED),\\\"strategic_angle\\\":string(2-3 sentences,REQUIRED),\\\"recommended_keywords\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"CANDIDATE:\\n\" + JSON.stringify($json.user) + \"\\n\\nJOB:\\n\" + JSON.stringify($json.job)) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "j108",
+      "name": "Ollama - Analyze Fit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3380,
+        600
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"LLM fit invalid JSON\"); }\nif (typeof p.fit_score !== \"number\" || p.fit_score < 0 || p.fit_score > 100) throw new Error(\"fit_score must be 0-100\");\np.fit_score = Math.round(p.fit_score);\nif (!p.gap_analysis) throw new Error(\"Missing gap_analysis\");\nconst ctx = $(\"Merge - Context\").first().json;\np.job_id = ctx.job_id; p.company_id = ctx.company_id; p.user = ctx.user; p.job = ctx.job;\np._llm_model = resp.model || \"\"; p._llm_tokens = resp.usage || null;\nreturn [{ json: p }];"
+      },
+      "id": "j109",
+      "name": "Validate - Fit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3620,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE jobs SET fit_score={{ $json.fit_score }}, gap_analysis='{{ $json.gap_analysis }}', alignment_report='{{ $json.alignment_report }}', strategic_angle='{{ $json.strategic_angle }}', status=CASE WHEN {{ $json.fit_score }} >= 75 THEN 'ANALYZED' ELSE 'LOW_FIT' END, updated_at=NOW() WHERE job_id='{{ $json.job_id }}'::uuid;"
+      },
+      "id": "j110",
+      "name": "Postgres - Save Fit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3860,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $(\"Validate - Fit\").first().json.fit_score }}",
+              "operation": "largerEqual",
+              "value2": 75
+            }
+          ]
+        }
+      },
+      "id": "j111",
+      "name": "IF - High Fit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        4100,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.3,\"messages\":[{\"role\":\"system\",\"content\":\"You are an ATS resume optimizer. Rewrite the resume for the target job. Rules: 1) Rewrite summary. 2) Reword experience with JD keywords. 3) Reorder skills. 4) Quantify achievements. 5) Do NOT fabricate.\\\\nReturn STRICT JSON: {\\\"tailored_summary\\\":string(REQUIRED),\\\"tailored_experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"bullets\\\":[string]}](REQUIRED),\\\"tailored_skills\\\":[string](REQUIRED),\\\"ats_score_estimate\\\":integer 0-100}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"Resume: \" + JSON.stringify($(\"Validate - Fit\").first().json.user) + \"\\nJob: \" + JSON.stringify($(\"Validate - Fit\").first().json.job) + \"\\nAngle: \" + $(\"Validate - Fit\").first().json.strategic_angle) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "h100",
+      "name": "Ollama - Tailor Resume",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4340,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Tailor invalid JSON\"); }\nif (!p.tailored_summary) throw new Error(\"Missing tailored_summary\");\nif (!Array.isArray(p.tailored_experience)) throw new Error(\"tailored_experience must be array\");\np._raw = resp.choices[0].message.content;\nreturn [{ json: p }];"
+      },
+      "id": "h101",
+      "name": "Validate - Tailor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4580,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.7,\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI content humanizer. Rewrite to sound naturally human: vary sentence length, use contractions, remove buzzword stacking.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_text\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json._raw) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "h102",
+      "name": "Ollama - Humanize Resume",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4820,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Humanize invalid JSON\"); }\nif (!p.humanized_text) throw new Error(\"Missing humanized_text\");\nconst ctx = $(\"Validate - Fit\").first().json;\np.user_id = ctx.user.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.strategic_angle = ctx.strategic_angle;\np.company_name = ctx.job.company_name; p.job_title = ctx.job.job_title;\np.hr_contact_name = ctx.job.hr_contact_name || \"Hiring Manager\";\np.hr_email = ctx.job.hr_email;\nreturn [{ json: p }];"
+      },
+      "id": "h103",
+      "name": "Validate - Humanized Resume",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5060,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO applications (user_id, job_id, tailored_resume_text, ai_detection_score, humanization_pass, generation_model, status) VALUES ('{{ $json.user_id }}'::uuid, '{{ $json.job_id }}'::uuid, '{{ $json.humanized_text }}', {{ $json.ai_detection_score || 50 }}, TRUE, '{{ $env.OLLAMA_MODEL }}', CASE WHEN '{{ $(\"Validate - User Auth\").first().json.email_mode }}' = 'AUTO' THEN 'READY' ELSE 'PENDING_REVIEW' END) ON CONFLICT (user_id, job_id, resume_version) DO UPDATE SET tailored_resume_text=EXCLUDED.tailored_resume_text, ai_detection_score=EXCLUDED.ai_detection_score, humanization_pass=TRUE, status=EXCLUDED.status RETURNING application_id;"
+      },
+      "id": "h104",
+      "name": "Postgres - Upsert Application",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        5300,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a cold outreach email specialist. Write a personalized job application email. Reference specific company details, genuine interest, value proposition, clear CTA.\\\\nReturn STRICT JSON: {\\\"subject_line\\\":string(REQUIRED),\\\"email_body\\\":string(150-200 words,REQUIRED),\\\"cta\\\":string}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"To: \" + $(\"Validate - Humanized Resume\").first().json.hr_contact_name + \" at \" + $(\"Validate - Humanized Resume\").first().json.company_name + \"\\nRole: \" + $(\"Validate - Humanized Resume\").first().json.job_title + \"\\nAngle: \" + $(\"Validate - Humanized Resume\").first().json.strategic_angle) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "h105",
+      "name": "Ollama - Draft Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5540,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this cold email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "options": {
+          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+        }
+      },
+      "id": "h106",
+      "name": "Ollama - Humanize Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5780,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Email humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\np.application_id = $(\"Postgres - Upsert Application\").first().json.application_id;\nreturn [{ json: p }];"
+      },
+      "id": "h107",
+      "name": "Validate - Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6020,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE applications SET email_subject='{{ $json.humanized_subject }}', email_body_long='{{ $json.humanized_body }}', ai_detection_score={{ $json.ai_detection_score || 50 }}, humanization_pass=TRUE WHERE application_id='{{ $json.application_id }}'::uuid;"
+      },
+      "id": "h108",
+      "name": "Postgres - Save Email Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        6260,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $(\"Validate - User Auth\").first().json.email_mode }}",
+              "operation": "equals",
+              "value2": "AUTO"
+            }
+          ]
+        }
+      },
+      "id": "h109",
+      "name": "IF - Auto Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        6500,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const userId = $(\"Validate - User Auth\").first().json.user_id;\nconst hourlyLimit = $(\"Validate - User Auth\").first().json.hourly_email_limit || 10;\nconst dailyLimit = $(\"Validate - User Auth\").first().json.daily_email_limit || 50;\n// These will be checked by DB query in next node\nreturn [{ json: { user_id: userId, hourly_limit: hourlyLimit, daily_limit: dailyLimit, ...$input.first().json } }];"
+      },
+      "id": "e000",
+      "name": "Check - Rate Limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6740,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT (SELECT COUNT(*) FROM email_dispatch_log WHERE user_id='{{ $json.user_id }}'::uuid AND sent_status='SENT' AND created_at > NOW() - INTERVAL '1 hour') AS hourly_count, (SELECT COUNT(*) FROM email_dispatch_log WHERE user_id='{{ $json.user_id }}'::uuid AND sent_status='SENT' AND created_at > NOW() - INTERVAL '1 day') AS daily_count;"
+      },
+      "id": "e001",
+      "name": "Postgres - Count Recent Sends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        6980,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const counts = $input.first().json;\nconst prev = $(\"Check - Rate Limit\").first().json;\nif (Number(counts.hourly_count) >= prev.hourly_limit) throw new Error(\"RATE_LIMITED: hourly limit \" + prev.hourly_limit + \" reached (\" + counts.hourly_count + \" sent)\");\nif (Number(counts.daily_count) >= prev.daily_limit) throw new Error(\"RATE_LIMITED: daily limit \" + prev.daily_limit + \" reached (\" + counts.daily_count + \" sent)\");\nreturn [{ json: prev }];"
+      },
+      "id": "e002",
+      "name": "Validate - Rate Limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require(\"crypto\");\nconst subj = $json.humanized_subject || $json.email_subject || \"\";\nconst body = $json.humanized_body || $json.email_body_long || \"\";\nconst hash = crypto.createHash(\"sha256\").update(subj + body).digest(\"hex\");\nconst appId = $json.application_id;\nconst userId = $(\"Validate - User Auth\").first().json.user_id;\nconst jobId = $json.job_id || $(\"Validate - Fit\").first().json.job_id;\nconst hrEmail = $json.hr_email || $(\"Validate - Humanized Resume\").first().json.hr_email;\nreturn [{ json: { ...($json), email_body_hash: hash, application_id: appId, user_id: userId, job_id: jobId, recipient_email: hrEmail, subject: subj, body: body } }];"
+      },
+      "id": "e003",
+      "name": "Compute - Email Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7460,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT log_id FROM email_dispatch_log WHERE user_id='{{ $json.user_id }}'::uuid AND job_id='{{ $json.job_id }}'::uuid AND email_body_hash='{{ $json.email_body_hash }}' AND sent_status='SENT' LIMIT 1;"
+      },
+      "id": "e004",
+      "name": "Postgres - Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        7700,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.log_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "e005",
+      "name": "IF - Already Sent",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        7940,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, 'email_dispatch', '={{ $execution.id }}', 'SKIPPED', '{\"reason\": \"duplicate_email\"}'::jsonb);"
+      },
+      "id": "e006",
+      "name": "Log - Skipped Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        8180,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "reason",
+              "value": "duplicate_email"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "e007",
+      "name": "Set - Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        8420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT credential_id, provider, sender_email, pgp_sym_decrypt(refresh_token_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS refresh_token, pgp_sym_decrypt(client_id_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_id_override, pgp_sym_decrypt(client_secret_enc, '{{ $env.DB_ENCRYPTION_KEY }}') AS client_secret_override FROM user_email_credentials WHERE user_id='{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid AND is_active=TRUE LIMIT 1;"
+      },
+      "id": "e010",
+      "name": "Postgres - Fetch Credentials",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        8180,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cred = $input.first().json;\nif (!cred || !cred.refresh_token) throw new Error(\"No active email credentials for user\");\nconst email = $(\"Compute - Email Hash\").first().json;\nreturn [{ json: { ...cred, ...email } }];"
+      },
+      "id": "e011",
+      "name": "Validate - Credentials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8420,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.provider === \"GMAIL\" ? \"https://oauth2.googleapis.com/token\" : \"https://login.microsoftonline.com/\" + ($env.OUTLOOK_TENANT_ID || \"common\") + \"/oauth2/v2.0/token\" }}",
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            },
+            {
+              "name": "refresh_token",
+              "value": "={{ $json.refresh_token }}"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $json.client_id_override || ($json.provider === \"GMAIL\" ? $env.GMAIL_CLIENT_ID : $env.OUTLOOK_CLIENT_ID) }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $json.client_secret_override || ($json.provider === \"GMAIL\" ? $env.GMAIL_CLIENT_SECRET : $env.OUTLOOK_CLIENT_SECRET) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "e012",
+      "name": "HTTP - Refresh Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        8660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nif (!resp.access_token) throw new Error(\"OAuth refresh failed: \" + JSON.stringify(resp).substring(0,500));\nconst prev = $(\"Validate - Credentials\").first().json;\nreturn [{ json: { access_token: resp.access_token, ...prev } }];"
+      },
+      "id": "e013",
+      "name": "Validate - Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.provider === \"GMAIL\" ? \"https://gmail.googleapis.com/gmail/v1/users/me/messages/send\" : \"https://graph.microsoft.com/v1.0/me/sendMail\" }}",
+        "authentication": "predefinedCredentialType",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.provider === \"GMAIL\" ? JSON.stringify({ raw: Buffer.from(\"From: \" + $json.sender_email + \"\\r\\nTo: \" + $json.recipient_email + \"\\r\\nSubject: \" + $json.subject + \"\\r\\nContent-Type: text/plain; charset=utf-8\\r\\n\\r\\n\" + $json.body).toString(\"base64url\") }) : JSON.stringify({ message: { subject: $json.subject, body: { contentType: \"Text\", content: $json.body }, toRecipients: [{ emailAddress: { address: $json.recipient_email } }] } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "e014",
+      "name": "HTTP - Send Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        9140,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO email_dispatch_log (execution_uuid, user_id, job_id, application_id, company_id, recipient_email, subject, email_body_hash, provider_message_id, sent_status) VALUES ('={{ $execution.id }}'::uuid, '{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.job_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid, '{{ $(\"Validate - Fit\").first().json.company_id }}'::uuid, '{{ $(\"Compute - Email Hash\").first().json.recipient_email }}', '{{ $(\"Compute - Email Hash\").first().json.subject }}', '{{ $(\"Compute - Email Hash\").first().json.email_body_hash }}', '{{ $json.id || $json.messageId || \"\" }}', 'SENT') ON CONFLICT (user_id, job_id, email_body_hash) DO NOTHING;"
+      },
+      "id": "e015",
+      "name": "Postgres - Log Send",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        9380,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE applications SET status='SENT', sent_at=NOW() WHERE application_id='{{ $(\"Compute - Email Hash\").first().json.application_id }}'::uuid;"
+      },
+      "id": "e016",
+      "name": "Postgres - Mark App Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        9620,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Check - Rate Limit\").first().json.user_id }}'::uuid, 'email_dispatch', '={{ $execution.id }}', 'SUCCESS', '{\"recipient\": \"{{ $(\"Compute - Email Hash\").first().json.recipient_email }}\"}'::jsonb);"
+      },
+      "id": "e017",
+      "name": "Log - Dispatch Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        9860,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "module",
+              "value": "email_dispatch"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "e018",
+      "name": "Set - Dispatch OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        10100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Validate - User Auth\").first().json.user_id }}'::uuid, 'job_analysis', '={{ $execution.id }}', 'SUCCESS', '{\"fit_score\": {{ $(\"Validate - Fit\").first().json.fit_score }}, \"result\": \"low_fit\"}'::jsonb);"
+      },
+      "id": "l100",
+      "name": "Log - Low Fit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        4340,
+        840
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "low_fit"
+            },
+            {
+              "name": "fit_score",
+              "value": "={{ $(\"Validate - Fit\").first().json.fit_score }}"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "l101",
+      "name": "Set - Low Fit OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        4580,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, output_summary) VALUES ('{{ $(\"Validate - User Auth\").first().json.user_id }}'::uuid, 'email_draft', '={{ $execution.id }}', 'SUCCESS', '{\"mode\": \"draft\", \"application_id\": \"{{ $(\"Postgres - Upsert Application\").first().json.application_id }}\"}'::jsonb);"
+      },
+      "id": "d100",
+      "name": "Log - Draft Saved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        6740,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "draft_saved"
+            },
+            {
+              "name": "module",
+              "value": "email_draft"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $(\"Postgres - Upsert Application\").first().json.application_id }}"
+            }
+          ],
+          "number": []
+        },
+        "options": {}
+      },
+      "id": "d101",
+      "name": "Set - Draft OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        6980,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT a.*, j.job_id, c.company_id, c.hr_email FROM applications a JOIN jobs j ON j.job_id = a.job_id JOIN companies c ON c.company_id = j.company_id WHERE a.application_id = '{{ $json._request_body.data.application_id }}'::uuid AND a.user_id = '{{ $json.user_id }}'::uuid LIMIT 1;"
+      },
+      "id": "m000",
+      "name": "Postgres - Fetch Application",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        1000
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const app = $input.first().json;\nif (!app || !app.application_id) throw new Error(\"Application not found or access denied\");\nif (!app.email_subject || !app.email_body_long) throw new Error(\"Email not yet generated for this application\");\nreturn [{ json: { ...app, humanized_subject: app.email_subject, humanized_body: app.email_body_long, recipient_email: app.hr_email } }];"
+      },
+      "id": "m001",
+      "name": "Validate - Application",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        1000
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "IF - Auth Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Auth Secret": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Validate User",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Validate User": {
+      "main": [
+        [
+          {
+            "node": "Validate - User Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - User Auth": {
+      "main": [
+        [
+          {
+            "node": "Switch - Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Router": {
+      "main": [
+        [
+          {
+            "node": "Log - Resume Start",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Job Start",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Fetch Application",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - 400 Bad Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Resume Start": {
+      "main": [
+        [
+          {
+            "node": "Exec - Extract Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exec - Extract Resume": {
+      "main": [
+        [
+          {
+            "node": "Validate - Resume Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Resume Text": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Structure Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Structure Resume": {
+      "main": [
+        [
+          {
+            "node": "Validate - Resume Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Resume Schema": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert User Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert User Resume": {
+      "main": [
+        [
+          {
+            "node": "Log - Resume Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Resume Success": {
+      "main": [
+        [
+          {
+            "node": "Set - Resume OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Job Start": {
+      "main": [
+        [
+          {
+            "node": "Exec - Scrape Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exec - Scrape Job": {
+      "main": [
+        [
+          {
+            "node": "Validate - Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Scrape": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Normalize Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Normalize Job": {
+      "main": [
+        [
+          {
+            "node": "Validate - Job Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Job Schema": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Company": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Job": {
+      "main": [
+        [
+          {
+            "node": "Merge - Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge - Context": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Analyze Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Analyze Fit": {
+      "main": [
+        [
+          {
+            "node": "Validate - Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Fit": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Save Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Save Fit": {
+      "main": [
+        [
+          {
+            "node": "IF - High Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - High Fit": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Tailor Resume",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Low Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Tailor Resume": {
+      "main": [
+        [
+          {
+            "node": "Validate - Tailor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Tailor": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Humanize Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Humanize Resume": {
+      "main": [
+        [
+          {
+            "node": "Validate - Humanized Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Humanized Resume": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Upsert Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Application": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Draft Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Draft Email": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Humanize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Humanize Email": {
+      "main": [
+        [
+          {
+            "node": "Validate - Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Email": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Save Email Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Save Email Draft": {
+      "main": [
+        [
+          {
+            "node": "IF - Auto Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Auto Send": {
+      "main": [
+        [
+          {
+            "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Draft Saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check - Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Count Recent Sends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Count Recent Sends": {
+      "main": [
+        [
+          {
+            "node": "Validate - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Compute - Email Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute - Email Hash": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "IF - Already Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Already Sent": {
+      "main": [
+        [
+          {
+            "node": "Log - Skipped Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Fetch Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Skipped Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Set - Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Fetch Credentials": {
+      "main": [
+        [
+          {
+            "node": "Validate - Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Credentials": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Refresh Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Refresh Token": {
+      "main": [
+        [
+          {
+            "node": "Validate - Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Token": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Send Email": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Log Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Log Send": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mark App Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Mark App Sent": {
+      "main": [
+        [
+          {
+            "node": "Log - Dispatch Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Dispatch Success": {
+      "main": [
+        [
+          {
+            "node": "Set - Dispatch OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Low Fit": {
+      "main": [
+        [
+          {
+            "node": "Set - Low Fit OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Draft Saved": {
+      "main": [
+        [
+          {
+            "node": "Set - Draft OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Fetch Application": {
+      "main": [
+        [
+          {
+            "node": "Validate - Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Application": {
+      "main": [
+        [
+          {
+            "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [
+    {
+      "name": "production"
+    },
+    {
+      "name": "multi-user"
+    },
+    {
+      "name": "email-dispatch"
+    },
+    {
+      "name": "ollama"
+    }
+  ]
+}
