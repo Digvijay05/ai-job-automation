@@ -12,7 +12,7 @@
 We take security seriously. If you discover a vulnerability:
 
 1.  **Do NOT open a public issue.**
-2.  Email full details to security@example.com (replace with actual security contact).
+2.  Email full details to digvijayjadav.dev@gmail.com.
 3.  Include steps to reproduce the vulnerability.
 
  we will acknowledge your report within 48 hours and provide a timeline for a fix.
