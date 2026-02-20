@@ -1,0 +1,36 @@
+FROM ollama/ollama:latest
+
+# Model to bake into the image at build time
+ARG OLLAMA_MODEL=llama3
+ENV OLLAMA_MODEL=${OLLAMA_MODEL}
+ENV OLLAMA_HOST=0.0.0.0
+
+# Root Cause Fix:
+#   ollama/ollama:latest is a minimal image — no curl, no wget.
+#   Use `ollama list` (built-in binary) to poll daemon readiness instead.
+#
+# Strategy:
+#   1. Start ollama serve in background
+#   2. Poll readiness using `ollama list` (exits 0 when daemon is up)
+#   3. Pull the model
+#   4. Kill the background daemon so the layer commits cleanly
+RUN bash -c '\
+    ollama serve &\
+    PID=$!; \
+    echo "[build] Waiting for Ollama daemon..."; \
+    for i in $(seq 1 30); do \
+    ollama list > /dev/null 2>&1 && break; \
+    echo "[build] Attempt $i/30..."; \
+    sleep 1; \
+    done; \
+    echo "[build] Daemon ready. Pulling ${OLLAMA_MODEL}..."; \
+    ollama pull ${OLLAMA_MODEL}; \
+    echo "[build] Pull complete. Stopping daemon..."; \
+    kill $PID && wait $PID 2>/dev/null; \
+    echo "[build] Done." \
+    '
+
+EXPOSE 11434
+
+ENTRYPOINT ["/bin/ollama"]
+CMD ["serve"]

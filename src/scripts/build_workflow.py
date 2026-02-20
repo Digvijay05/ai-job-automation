@@ -18,7 +18,20 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any
+
+# ──────────────────────────────────────────────────
+# Credential Loading
+# ──────────────────────────────────────────────────
+_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "credentials.json"
+_creds_data: dict[str, dict] = {}
+if _CONFIG_PATH.exists():
+    with open(_CONFIG_PATH, encoding="utf-8") as _f:
+        _raw = json.load(_f)
+        for _k, _v in _raw.items():
+            if isinstance(_v, dict) and "id" in _v:
+                _creds_data[_k] = _v
 
 # ──────────────────────────────────────────────────
 # Helpers
@@ -42,26 +55,80 @@ def node(nid: str, name: str, ntype: str, params: dict, pos: list[int],
         n["credentials"] = creds
     return n
 
-PG = {"postgres": {"id": "CONFIGURE_ME", "name": "Postgres"}}
-GMAIL_CREDS = {"gmailOAuth2": {"id": "CONFIGURE_ME", "name": "Gmail OAuth2"}}
-CAL_CREDS = {"googleCalendarOAuth2Api": {"id": "CONFIGURE_ME", "name": "Google Calendar"}}
+def _langchain_node(nid: str, name: str, ntype: str, params: dict,
+                    pos: list[int], version: int = 1,
+                    creds: dict | None = None) -> dict:
+    """Build a @n8n/n8n-nodes-langchain node (AI nodes use a different prefix)."""
+    n: dict[str, Any] = {
+        "parameters": params,
+        "id": nid,
+        "name": name,
+        "type": f"@n8n/n8n-nodes-langchain.{ntype}",
+        "typeVersion": version,
+        "position": pos,
+    }
+    if creds:
+        n["credentials"] = creds
+    return n
 
-def ollama_call(nid: str, name: str, system_prompt: str, user_expr: str,
-                pos: list[int], temp: float = 0.1) -> dict:
-    """Build an Ollama LLM call via HTTP Request (no auth, Docker-local)."""
-    body = (
-        '={"model":"{{ $env.OLLAMA_MODEL }}",'
-        '"max_tokens":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},'
-        f'"temperature":{temp},'
-        '"messages":[{"role":"system","content":' + json.dumps(system_prompt) + '},'
-        '{"role":"user","content":' + user_expr + '}]}'
-    )
-    return node(nid, name, "httpRequest", {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": True, "specifyBody": "json", "jsonBody": body,
-        "options": {"timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"},
-    }, pos, version=4)
+PG = {"postgres": _creds_data.get("postgres", {"id": "CONFIGURE_ME", "name": "Postgres"})}
+GMAIL_CREDS = {"gmailOAuth2": _creds_data.get("gmailOAuth2", {"id": "CONFIGURE_ME", "name": "Gmail OAuth2"})}
+CAL_CREDS = {"googleCalendarOAuth2Api": _creds_data.get("googleCalendarOAuth2Api", {"id": "CONFIGURE_ME", "name": "Google Calendar"})}
+OLLAMA_CREDS = {"ollamaApi": _creds_data.get("ollamaApi", {"id": "CONFIGURE_ME", "name": "Ollama"})}
+
+# ─── AI Connection Tracking ──────────────────────
+# These are collected separately from `main` connections because n8n
+# uses different port types (ai_languageModel, ai_tool, ai_memory).
+ai_connections: list[dict] = []
+
+def add_ai_conn(source: str, target: str, source_output: str = "ai_languageModel") -> None:
+    """Register an AI connection (language model → agent, tool → agent, etc.)."""
+    ai_connections.append({
+        "source": source,
+        "target": target,
+        "sourceOutput": source_output,
+    })
+
+def ollama_model_node(nid: str, name: str, pos: list[int],
+                      temp: float = 0.1) -> dict:
+    """Build native Ollama Chat Model node (@n8n/n8n-nodes-langchain.lmChatOllama)."""
+    return _langchain_node(nid, name, "lmChatOllama", {
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
+        "options": {
+            "temperature": temp,
+        },
+    }, pos, version=1, creds=OLLAMA_CREDS)
+
+def agent_node(nid: str, name: str, system_prompt: str, user_expr: str,
+               pos: list[int]) -> dict:
+    """Build an AI Agent node (@n8n/n8n-nodes-langchain.agent)."""
+    return _langchain_node(nid, name, "agent", {
+        "promptType": "define",
+        "text": user_expr,
+        "options": {
+            "systemMessage": system_prompt,
+            "returnIntermediateSteps": False,
+        },
+    }, pos, version=2)
+
+def llm_pair(agent_id: str, agent_name: str, system_prompt: str,
+             user_expr: str, pos: list[int], temp: float = 0.1) -> list[dict]:
+    """Create an Ollama Chat Model + AI Agent pair and auto-register AI connection.
+
+    Returns a list of 2 nodes: [chat_model, agent].
+    The chat model is positioned 40px above the agent.
+    """
+    model_id = f"{agent_id}_lm"
+    model_name = f"LM - {agent_name.replace('AI Agent - ', '')}"
+    model_pos = [pos[0], pos[1] - 120]
+
+    model = ollama_model_node(model_id, model_name, model_pos, temp=temp)
+    agent = agent_node(agent_id, agent_name, system_prompt, user_expr, pos)
+
+    # Auto-register the ai_languageModel connection
+    add_ai_conn(model_name, agent_name, "ai_languageModel")
+
+    return [model, agent]
 
 def validate_node(nid: str, name: str, js: str, pos: list[int]) -> dict:
     return node(nid, name, "code", {"jsCode": js}, pos, version=2)
@@ -85,26 +152,6 @@ def gmail_node(nid: str, name: str, operation: str, params: dict,
     """Build a Gmail node (n8n-nodes-base.gmail, typeVersion 2.2)."""
     base = {"operation": operation, **params}
     return node(nid, name, "gmail", base, pos, version=2, creds=GMAIL_CREDS)
-
-def agent_node(nid: str, name: str, system_prompt: str, user_expr: str,
-               pos: list[int]) -> dict:
-    """Build an AI Agent node (@n8n/n8n-nodes-langchain.agent)."""
-    n: dict[str, Any] = {
-        "parameters": {
-            "promptType": "define",
-            "text": user_expr,
-            "options": {
-                "systemMessage": system_prompt,
-                "returnIntermediateSteps": False,
-            },
-        },
-        "id": nid,
-        "name": name,
-        "type": "@n8n/n8n-nodes-langchain.agent",
-        "typeVersion": 2,
-        "position": pos,
-    }
-    return n
 
 def conn(src: str, *targets: str | tuple[str, ...]) -> dict:
     """Build connection entry. Each target is a string or tuple of strings (for branches)."""
@@ -204,12 +251,12 @@ RESUME_SCHEMA_PROMPT = (
     '"certifications":[string],"preferred_roles":[string]}\\n'
     "Return ONLY valid JSON. No markdown fences."
 )
-nodes.append(ollama_call("r102", "Ollama - Structure Resume", RESUME_SCHEMA_PROMPT,
+nodes.extend(llm_pair("r102", "AI Agent - Structure Resume", RESUME_SCHEMA_PROMPT,
     '{{ JSON.stringify($json.raw_text) }}', _pos(2180, Y_R)))
 
 nodes.append(validate_node("r103", "Validate - Resume Schema",
     'const resp = $input.first().json;\n'
-    'const content = resp.choices[0].message.content;\n'
+    'const content = resp.output;\n'
     'let parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error("LLM invalid JSON: " + content.substring(0,500)); }\n'
     'if (!parsed.full_name) throw new Error("Missing full_name");\n'
     'if (!parsed.email || !parsed.email.includes("@")) throw new Error("Missing/invalid email");\n'
@@ -273,12 +320,12 @@ JOB_SCHEMA_PROMPT = (
     '"hr_contact_name":string|null,"hr_email":string|null}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("j102", "Ollama - Normalize Job", JOB_SCHEMA_PROMPT,
+nodes.extend(llm_pair("j102", "AI Agent - Normalize Job", JOB_SCHEMA_PROMPT,
     '{{ JSON.stringify($json.raw_text) }}', _pos(2180, Y_J)))
 
 nodes.append(validate_node("j103", "Validate - Job Schema",
     'const resp = $input.first().json;\n'
-    'const content = resp.choices[0].message.content;\n'
+    'const content = resp.output;\n'
     'let parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error("LLM normalize invalid JSON: " + content.substring(0,500)); }\n'
     'if (!parsed.company_name) throw new Error("Missing company_name");\n'
     'if (!parsed.job_title) throw new Error("Missing job_title");\n'
@@ -326,13 +373,13 @@ FIT_PROMPT = (
     '"alignment_report":string(REQUIRED),"strategic_angle":string(2-3 sentences,REQUIRED),'
     '"recommended_keywords":[string]}\\nReturn ONLY valid JSON.'
 )
-nodes.append(ollama_call("j108", "Ollama - Analyze Fit", FIT_PROMPT,
+nodes.extend(llm_pair("j108", "AI Agent - Analyze Fit", FIT_PROMPT,
     '{{ JSON.stringify("CANDIDATE:\\n" + JSON.stringify($json.user) + "\\n\\nJOB:\\n" + JSON.stringify($json.job)) }}',
     _pos(3380, Y_J), temp=0.2))
 
 nodes.append(validate_node("j109", "Validate - Fit",
     'const resp = $input.first().json;\n'
-    'const content = resp.choices[0].message.content;\n'
+    'const content = resp.output;\n'
     'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("LLM fit invalid JSON"); }\n'
     'if (typeof p.fit_score !== "number" || p.fit_score < 0 || p.fit_score > 100) throw new Error("fit_score must be 0-100");\n'
     'p.fit_score = Math.round(p.fit_score);\n'
@@ -368,16 +415,16 @@ TAILOR_PROMPT = (
     'Return STRICT JSON: {"tailored_summary":string(REQUIRED),"tailored_experience":[{"title":string,"company":string,"bullets":[string]}](REQUIRED),'
     '"tailored_skills":[string](REQUIRED),"ats_score_estimate":integer 0-100}\\nReturn ONLY valid JSON.'
 )
-nodes.append(ollama_call("h100", "Ollama - Tailor Resume", TAILOR_PROMPT,
+nodes.extend(llm_pair("h100", "AI Agent - Tailor Resume", TAILOR_PROMPT,
     '{{ JSON.stringify("Resume: " + JSON.stringify($("Validate - Fit").first().json.user) + "\\nJob: " + JSON.stringify($("Validate - Fit").first().json.job) + "\\nAngle: " + $("Validate - Fit").first().json.strategic_angle) }}',
     _pos(4340, Y_H), temp=0.3))
 
 nodes.append(validate_node("h101", "Validate - Tailor",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Tailor invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Tailor invalid JSON"); }\n'
     'if (!p.tailored_summary) throw new Error("Missing tailored_summary");\n'
     'if (!Array.isArray(p.tailored_experience)) throw new Error("tailored_experience must be array");\n'
-    'p._raw = resp.choices[0].message.content;\n'
+    'p._raw = resp.output;\n'
     'return [{ json: p }];',
     _pos(4580, Y_H)))
 
@@ -386,12 +433,12 @@ HUMANIZE_RESUME_PROMPT = (
     'Return STRICT JSON: {"ai_detection_score":integer 0-100,"humanized_text":string(REQUIRED),"changes_made":[string]}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("h102", "Ollama - Humanize Resume", HUMANIZE_RESUME_PROMPT,
+nodes.extend(llm_pair("h102", "AI Agent - Humanize Resume", HUMANIZE_RESUME_PROMPT,
     '{{ JSON.stringify($json._raw) }}', _pos(4820, Y_H), temp=0.7))
 
 nodes.append(validate_node("h103", "Validate - Humanized Resume",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Humanize invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Humanize invalid JSON"); }\n'
     'if (!p.humanized_text) throw new Error("Missing humanized_text");\n'
     'const ctx = $("Validate - Fit").first().json;\n'
     'p.user_id = ctx.user.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\n'
@@ -418,7 +465,7 @@ EMAIL_DRAFT_PROMPT = (
     'Return STRICT JSON: {"subject_line":string(REQUIRED),"email_body":string(150-200 words,REQUIRED),"cta":string}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("h105", "Ollama - Draft Email", EMAIL_DRAFT_PROMPT,
+nodes.extend(llm_pair("h105", "AI Agent - Draft Email", EMAIL_DRAFT_PROMPT,
     '{{ JSON.stringify("To: " + $("Validate - Humanized Resume").first().json.hr_contact_name + " at " + $("Validate - Humanized Resume").first().json.company_name + "\\nRole: " + $("Validate - Humanized Resume").first().json.job_title + "\\nAngle: " + $("Validate - Humanized Resume").first().json.strategic_angle) }}',
     _pos(5540, Y_H), temp=0.6))
 
@@ -428,13 +475,13 @@ HUMANIZE_EMAIL_PROMPT = (
     'Return STRICT JSON: {"ai_detection_score":integer 0-100,"humanized_subject":string(REQUIRED),'
     '"humanized_body":string(REQUIRED),"changes_made":[string]}\\nReturn ONLY valid JSON.'
 )
-nodes.append(ollama_call("h106", "Ollama - Humanize Email", HUMANIZE_EMAIL_PROMPT,
+nodes.extend(llm_pair("h106", "AI Agent - Humanize Email", HUMANIZE_EMAIL_PROMPT,
     '{{ JSON.stringify($input.first().json.choices[0].message.content) }}',
     _pos(5780, Y_H), temp=0.8))
 
 nodes.append(validate_node("h107", "Validate - Email",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Email humanize invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Email humanize invalid JSON"); }\n'
     'if (!p.humanized_subject) throw new Error("Missing humanized_subject");\n'
     'if (!p.humanized_body) throw new Error("Missing humanized_body");\n'
     'p.application_id = $("Postgres - Upsert Application").first().json.application_id;\n'
@@ -732,7 +779,7 @@ nodes.append(agent_node("i012", "AI Agent - Classify Reply", CLASSIFY_AGENT_PROM
 nodes.append(validate_node("i013", "Validate - Classification",
     'const resp = $input.first().json;\n'
     '// AI Agent returns { output: "..." }, fallback to Ollama format for compatibility\n'
-    'const content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) || JSON.stringify(resp);\n'
+    'const content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.output) || JSON.stringify(resp);\n'
     'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Classification invalid JSON: " + String(content).substring(0,500)); }\n'
     'const validTypes = ["INTERVIEW_INVITE","FOLLOW_UP_REQUIRED","REJECTION","INFORMATION_REQUEST","OTHER"];\n'
     'if (!validTypes.includes(p.reply_type)) throw new Error("Invalid reply_type: " + p.reply_type);\n'
@@ -783,7 +830,7 @@ AUTO_REPLY_PROMPT = (
     'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("i020", "Ollama - Generate Reply", AUTO_REPLY_PROMPT,
+nodes.extend(llm_pair("i020", "AI Agent - Generate Reply", AUTO_REPLY_PROMPT,
     '={{ JSON.stringify("Original subject: " + $("Validate - Classification").first().json.subject + "\\nReply type: " + $("Validate - Classification").first().json.reply_type + "\\nIncoming email: " + $("Validate - Classification").first().json.email_body) }}',
     _pos(3620, Y_AR), temp=0.5))
 
@@ -794,13 +841,13 @@ HUMANIZE_REPLY_PROMPT = (
     'Return STRICT JSON: {"ai_detection_score":integer 0-100,"humanized_subject":string(REQUIRED),'
     '"humanized_body":string(REQUIRED),"changes_made":[string]}\\nReturn ONLY valid JSON.'
 )
-nodes.append(ollama_call("i021", "Ollama - Humanize Reply", HUMANIZE_REPLY_PROMPT,
+nodes.extend(llm_pair("i021", "AI Agent - Humanize Reply", HUMANIZE_REPLY_PROMPT,
     '={{ JSON.stringify($input.first().json.choices[0].message.content) }}',
     _pos(3860, Y_AR), temp=0.8))
 
 nodes.append(validate_node("i022", "Validate - Reply",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Reply humanize invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Reply humanize invalid JSON"); }\n'
     'if (!p.humanized_subject) throw new Error("Missing humanized_subject");\n'
     'if (!p.humanized_body) throw new Error("Missing humanized_body");\n'
     'const ctx = $("Validate - Classification").first().json;\n'
@@ -834,13 +881,13 @@ REJECTION_ACK_PROMPT = (
     'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("i030", "Ollama - Rejection Ack", REJECTION_ACK_PROMPT,
+nodes.extend(llm_pair("i030", "AI Agent - Rejection Ack", REJECTION_ACK_PROMPT,
     '={{ JSON.stringify("Subject: " + $("Validate - Classification").first().json.subject + "\\nRejection email: " + $("Validate - Classification").first().json.email_body) }}',
     _pos(3620, Y_RJ), temp=0.4))
 
 nodes.append(validate_node("i031", "Validate - Rejection Ack",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Rejection ack invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Rejection ack invalid JSON"); }\n'
     'if (!p.reply_body) throw new Error("Missing reply_body");\n'
     'const ctx = $("Validate - Classification").first().json;\n'
     'p.user_id = ctx.user_id; p.job_id = ctx.job_id; p.recipient_email = ctx.sender_email;\n'
@@ -889,13 +936,13 @@ INTERVIEW_EXTRACT_PROMPT = (
     '"additional_notes":string|null}\\n'
     "Return ONLY valid JSON. No markdown fences."
 )
-nodes.append(ollama_call("iv000", "Ollama - Extract Interview", INTERVIEW_EXTRACT_PROMPT,
+nodes.extend(llm_pair("iv000", "AI Agent - Extract Interview", INTERVIEW_EXTRACT_PROMPT,
     '={{ JSON.stringify($("Validate - Classification").first().json.email_body) }}',
     _pos(3620, Y_IV), temp=0.1))
 
 nodes.append(validate_node("iv001", "Validate - Interview Details",
     'const resp = $input.first().json;\n'
-    'const content = resp.choices[0].message.content;\n'
+    'const content = resp.output;\n'
     'let p; try { p = JSON.parse(content); } catch(e) { throw new Error("Interview extract invalid JSON: " + content.substring(0,500)); }\n'
     'if (!p.interview_date || !p.interview_time) throw new Error("Missing interview_date or interview_time");\n'
     'const validModes = ["VIRTUAL","IN_PERSON","PHONE"];\n'
@@ -987,18 +1034,18 @@ CONFIRM_PROMPT = (
     'Return STRICT JSON: {"reply_subject":string(REQUIRED),"reply_body":string(REQUIRED)}\\n'
     "Return ONLY valid JSON."
 )
-nodes.append(ollama_call("iv008", "Ollama - Confirmation Email", CONFIRM_PROMPT,
+nodes.extend(llm_pair("iv008", "AI Agent - Confirmation Email", CONFIRM_PROMPT,
     '={{ JSON.stringify("Interview date: " + $("Validate - Interview Details").first().json.interview_date + " " + $("Validate - Interview Details").first().json.interview_time + "\\nMode: " + $("Validate - Interview Details").first().json.interview_mode + "\\nInterviewer: " + ($("Validate - Interview Details").first().json.interviewer_name || "Hiring Manager") + "\\nOriginal email: " + $("Validate - Classification").first().json.email_body) }}',
     _pos(5300, Y_IV), temp=0.5))
 
 # Humanize confirmation (REUSES shared humanization pattern)
-nodes.append(ollama_call("iv009", "Ollama - Humanize Confirmation", HUMANIZE_REPLY_PROMPT,
+nodes.extend(llm_pair("iv009", "AI Agent - Humanize Confirmation", HUMANIZE_REPLY_PROMPT,
     '={{ JSON.stringify($input.first().json.choices[0].message.content) }}',
     _pos(5540, Y_IV), temp=0.8))
 
 nodes.append(validate_node("iv010", "Validate - Confirmation",
     'const resp = $input.first().json;\n'
-    'let p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error("Confirmation humanize invalid JSON"); }\n'
+    'let p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error("Confirmation humanize invalid JSON"); }\n'
     'if (!p.humanized_body) throw new Error("Missing humanized_body");\n'
     'const ctx = $("Validate - Interview Details").first().json;\n'
     'p.user_id = ctx.user_id; p.job_id = ctx.job_id;\n'
@@ -1048,8 +1095,8 @@ add_conn("Switch - Router", ["Log - Resume Start"], ["Log - Job Start"], ["Postg
 # Resume branch
 add_conn("Log - Resume Start", ["Exec - Extract Resume"])
 add_conn("Exec - Extract Resume", ["Validate - Resume Text"])
-add_conn("Validate - Resume Text", ["Ollama - Structure Resume"])
-add_conn("Ollama - Structure Resume", ["Validate - Resume Schema"])
+add_conn("Validate - Resume Text", ["AI Agent - Structure Resume"])
+add_conn("AI Agent - Structure Resume", ["Validate - Resume Schema"])
 add_conn("Validate - Resume Schema", ["Postgres - Upsert User Resume"])
 add_conn("Postgres - Upsert User Resume", ["Log - Resume Success"])
 add_conn("Log - Resume Success", ["Set - Resume OK"])
@@ -1057,25 +1104,25 @@ add_conn("Log - Resume Success", ["Set - Resume OK"])
 # Job branch
 add_conn("Log - Job Start", ["Exec - Scrape Job"])
 add_conn("Exec - Scrape Job", ["Validate - Scrape"])
-add_conn("Validate - Scrape", ["Ollama - Normalize Job"])
-add_conn("Ollama - Normalize Job", ["Validate - Job Schema"])
+add_conn("Validate - Scrape", ["AI Agent - Normalize Job"])
+add_conn("AI Agent - Normalize Job", ["Validate - Job Schema"])
 add_conn("Validate - Job Schema", ["Postgres - Upsert Company"])
 add_conn("Postgres - Upsert Company", ["Postgres - Upsert Job"])
 add_conn("Postgres - Upsert Job", ["Merge - Context"])
-add_conn("Merge - Context", ["Ollama - Analyze Fit"])
-add_conn("Ollama - Analyze Fit", ["Validate - Fit"])
+add_conn("Merge - Context", ["AI Agent - Analyze Fit"])
+add_conn("AI Agent - Analyze Fit", ["Validate - Fit"])
 add_conn("Validate - Fit", ["Postgres - Save Fit"])
 add_conn("Postgres - Save Fit", ["IF - High Fit"])
-add_conn("IF - High Fit", ["Ollama - Tailor Resume"], ["Log - Low Fit"])
+add_conn("IF - High Fit", ["AI Agent - Tailor Resume"], ["Log - Low Fit"])
 
 # High fit branch
-add_conn("Ollama - Tailor Resume", ["Validate - Tailor"])
-add_conn("Validate - Tailor", ["Ollama - Humanize Resume"])
-add_conn("Ollama - Humanize Resume", ["Validate - Humanized Resume"])
+add_conn("AI Agent - Tailor Resume", ["Validate - Tailor"])
+add_conn("Validate - Tailor", ["AI Agent - Humanize Resume"])
+add_conn("AI Agent - Humanize Resume", ["Validate - Humanized Resume"])
 add_conn("Validate - Humanized Resume", ["Postgres - Upsert Application"])
-add_conn("Postgres - Upsert Application", ["Ollama - Draft Email"])
-add_conn("Ollama - Draft Email", ["Ollama - Humanize Email"])
-add_conn("Ollama - Humanize Email", ["Validate - Email"])
+add_conn("Postgres - Upsert Application", ["AI Agent - Draft Email"])
+add_conn("AI Agent - Draft Email", ["AI Agent - Humanize Email"])
+add_conn("AI Agent - Humanize Email", ["Validate - Email"])
 add_conn("Validate - Email", ["Postgres - Save Email Draft"])
 add_conn("Postgres - Save Email Draft", ["IF - Auto Send"])
 add_conn("IF - Auto Send", ["Check - Rate Limit"], ["Log - Draft Saved"])
@@ -1119,20 +1166,20 @@ add_conn("AI Agent - Classify Reply", ["Validate - Classification"])
 add_conn("Validate - Classification", ["Postgres - Log Inbound"])
 add_conn("Postgres - Log Inbound", ["Switch - Reply Type"])
 add_conn("Switch - Reply Type",
-    ["Ollama - Extract Interview"],       # INTERVIEW_INVITE
-    ["Ollama - Generate Reply"],           # FOLLOW_UP / INFO_REQUEST
-    ["Ollama - Rejection Ack"],            # REJECTION
+    ["AI Agent - Extract Interview"],       # INTERVIEW_INVITE
+    ["AI Agent - Generate Reply"],           # FOLLOW_UP / INFO_REQUEST
+    ["AI Agent - Rejection Ack"],            # REJECTION
     ["Log - Other Inbound"],               # OTHER (fallback)
 )
 
 # Auto-reply chain (FOLLOW_UP / INFO_REQUEST)
-add_conn("Ollama - Generate Reply", ["Ollama - Humanize Reply"])
-add_conn("Ollama - Humanize Reply", ["Validate - Reply"])
+add_conn("AI Agent - Generate Reply", ["AI Agent - Humanize Reply"])
+add_conn("AI Agent - Humanize Reply", ["Validate - Reply"])
 add_conn("Validate - Reply", ["IF - Auto Reply Send"])
 add_conn("IF - Auto Reply Send", ["Check - Rate Limit"], ["Set - Reply Pending Review"])
 
 # Rejection branch
-add_conn("Ollama - Rejection Ack", ["Validate - Rejection Ack"])
+add_conn("AI Agent - Rejection Ack", ["Validate - Rejection Ack"])
 add_conn("Validate - Rejection Ack", ["Log - Rejection Processed"])
 add_conn("Log - Rejection Processed", ["Set - Rejection OK"])
 
@@ -1140,15 +1187,15 @@ add_conn("Log - Rejection Processed", ["Set - Rejection OK"])
 add_conn("Log - Other Inbound", ["Set - Manual Review Required"])
 
 # Interview scheduling branch
-add_conn("Ollama - Extract Interview", ["Validate - Interview Details"])
+add_conn("AI Agent - Extract Interview", ["Validate - Interview Details"])
 add_conn("Validate - Interview Details", ["Postgres - Check Dup Interview"])
 add_conn("Postgres - Check Dup Interview", ["IF - Interview Exists"])
 add_conn("IF - Interview Exists", ["Set - Interview Dup Skipped"], ["Google Calendar - Create Event"])
 add_conn("Google Calendar - Create Event", ["Postgres - Log Interview"])
 add_conn("Postgres - Log Interview", ["Postgres - Update Job Status"])
-add_conn("Postgres - Update Job Status", ["Ollama - Confirmation Email"])
-add_conn("Ollama - Confirmation Email", ["Ollama - Humanize Confirmation"])
-add_conn("Ollama - Humanize Confirmation", ["Validate - Confirmation"])
+add_conn("Postgres - Update Job Status", ["AI Agent - Confirmation Email"])
+add_conn("AI Agent - Confirmation Email", ["AI Agent - Humanize Confirmation"])
+add_conn("AI Agent - Humanize Confirmation", ["Validate - Confirmation"])
 add_conn("Validate - Confirmation", ["IF - Auto Confirm Send"])
 add_conn("IF - Auto Confirm Send", ["Check - Rate Limit"], ["Set - Confirm Pending Review"])
 add_conn("Set - Confirm Pending Review", ["Log - Interview Success"])
@@ -1158,7 +1205,16 @@ add_conn("Log - Interview Success", ["Set - Interview Scheduled OK"])
 # ASSEMBLE & OUTPUT
 # ═══════════════════════════════════════════════════
 import argparse
-from pathlib import Path
+
+# Merge AI connections (ai_languageModel, ai_tool, ai_memory) into connections dict
+for ai_conn in ai_connections:
+    src = ai_conn["source"]
+    tgt = ai_conn["target"]
+    port = ai_conn["sourceOutput"]
+    entry = connections.setdefault(src, {"main": [[]]})
+    if port not in entry:
+        entry[port] = [[]]
+    entry[port][0].append({"node": tgt, "type": port, "index": 0})
 
 parser = argparse.ArgumentParser(description="Build n8n workflow JSON")
 parser.add_argument(
@@ -1184,7 +1240,7 @@ workflow = {
         {"name": "production"},
         {"name": "multi-user"},
         {"name": "email-dispatch"},
-        {"name": "ollama"},
+        {"name": "ai-agent"},
     ],
 }
 
@@ -1194,4 +1250,6 @@ out_path.write_text(
     json.dumps(workflow, indent=2, ensure_ascii=False) + "\n",
     encoding="utf-8",
 )
-print(f"Wrote {len(nodes)} nodes, {len(connections)} connections -> {out_path}")
+print(f"Wrote {len(nodes)} nodes, {len(connections)} connections "
+      f"({len(ai_connections)} AI) -> {out_path}")
+

@@ -260,19 +260,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a resume data extractor. Extract STRICT JSON matching this schema exactly:\\\\n{\\\"full_name\\\":string(REQUIRED),\\\"email\\\":string(REQUIRED),\\\"phone\\\":string|null,\\\"skills\\\":[string](REQUIRED,non-empty),\\\"experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"description\\\":string}],\\\"projects\\\":[{\\\"name\\\":string,\\\"description\\\":string,\\\"technologies\\\":[string]}],\\\"education\\\":[{\\\"degree\\\":string,\\\"institution\\\":string,\\\"year\\\":string}],\\\"certifications\\\":[string],\\\"preferred_roles\\\":[string]}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.1
+        }
+      },
+      "id": "r102_lm",
+      "name": "LM - Structure Resume",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        80
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify($json.raw_text) }}",
+        "options": {
+          "systemMessage": "You are a resume data extractor. Extract STRICT JSON matching this schema exactly:\\n{\"full_name\":string(REQUIRED),\"email\":string(REQUIRED),\"phone\":string|null,\"skills\":[string](REQUIRED,non-empty),\"experience\":[{\"title\":string,\"company\":string,\"description\":string}],\"projects\":[{\"name\":string,\"description\":string,\"technologies\":[string]}],\"education\":[{\"degree\":string,\"institution\":string,\"year\":string}],\"certifications\":[string],\"preferred_roles\":[string]}\\nReturn ONLY valid JSON. No markdown fences.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "r102",
-      "name": "Ollama - Structure Resume",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Structure Resume",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         2180,
         200
@@ -280,7 +300,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.full_name) throw new Error(\"Missing full_name\");\nif (!parsed.email || !parsed.email.includes(\"@\")) throw new Error(\"Missing/invalid email\");\nif (!Array.isArray(parsed.skills) || parsed.skills.length === 0) throw new Error(\"skills must be non-empty array\");\nparsed.raw_resume_text = $(\"Validate - Resume Text\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nparsed._llm_tokens = resp.usage || null;\nparsed._user_id = $(\"Validate - User Auth\").first().json.user_id;\nreturn [{ json: parsed }];"
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.output;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.full_name) throw new Error(\"Missing full_name\");\nif (!parsed.email || !parsed.email.includes(\"@\")) throw new Error(\"Missing/invalid email\");\nif (!Array.isArray(parsed.skills) || parsed.skills.length === 0) throw new Error(\"skills must be non-empty array\");\nparsed.raw_resume_text = $(\"Validate - Resume Text\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nparsed._llm_tokens = resp.usage || null;\nparsed._user_id = $(\"Validate - User Auth\").first().json.user_id;\nreturn [{ json: parsed }];"
       },
       "id": "r103",
       "name": "Validate - Resume Schema",
@@ -409,19 +429,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are a job posting normalizer. Extract STRICT JSON:\\\\n{\\\"company_name\\\":string(REQUIRED),\\\"industry\\\":string|null,\\\"location\\\":string|null,\\\"job_title\\\":string(REQUIRED),\\\"required_skills\\\":[string](REQUIRED),\\\"experience_level\\\":string|null,\\\"employment_type\\\":string|null,\\\"description_summary\\\":string(2-3 sentences,REQUIRED),\\\"tech_stack\\\":[string],\\\"hr_contact_name\\\":string|null,\\\"hr_email\\\":string|null}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.raw_text) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.1
+        }
+      },
+      "id": "j102_lm",
+      "name": "LM - Normalize Job",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        480
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify($json.raw_text) }}",
+        "options": {
+          "systemMessage": "You are a job posting normalizer. Extract STRICT JSON:\\n{\"company_name\":string(REQUIRED),\"industry\":string|null,\"location\":string|null,\"job_title\":string(REQUIRED),\"required_skills\":[string](REQUIRED),\"experience_level\":string|null,\"employment_type\":string|null,\"description_summary\":string(2-3 sentences,REQUIRED),\"tech_stack\":[string],\"hr_contact_name\":string|null,\"hr_email\":string|null}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "j102",
-      "name": "Ollama - Normalize Job",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Normalize Job",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         2180,
         600
@@ -429,7 +469,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM normalize invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.company_name) throw new Error(\"Missing company_name\");\nif (!parsed.job_title) throw new Error(\"Missing job_title\");\nif (!Array.isArray(parsed.required_skills)) parsed.required_skills = [];\nparsed.job_url = $(\"Validate - Scrape\").first().json.job_url;\nparsed.raw_text = $(\"Validate - Scrape\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nreturn [{ json: parsed }];"
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.output;\nlet parsed; try { parsed = JSON.parse(content); } catch(e) { throw new Error(\"LLM normalize invalid JSON: \" + content.substring(0,500)); }\nif (!parsed.company_name) throw new Error(\"Missing company_name\");\nif (!parsed.job_title) throw new Error(\"Missing job_title\");\nif (!Array.isArray(parsed.required_skills)) parsed.required_skills = [];\nparsed.job_url = $(\"Validate - Scrape\").first().json.job_url;\nparsed.raw_text = $(\"Validate - Scrape\").first().json.raw_text;\nparsed._llm_model = resp.model || \"\";\nreturn [{ json: parsed }];"
       },
       "id": "j103",
       "name": "Validate - Job Schema",
@@ -495,19 +535,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a career strategist. Analyze candidate-job fit. Return STRICT JSON:\\\\n{\\\"fit_score\\\":integer 0-100(REQUIRED),\\\"gap_analysis\\\":string(REQUIRED),\\\"alignment_report\\\":string(REQUIRED),\\\"strategic_angle\\\":string(2-3 sentences,REQUIRED),\\\"recommended_keywords\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"CANDIDATE:\\n\" + JSON.stringify($json.user) + \"\\n\\nJOB:\\n\" + JSON.stringify($json.job)) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.2
+        }
+      },
+      "id": "j108_lm",
+      "name": "LM - Analyze Fit",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        3380,
+        480
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify(\"CANDIDATE:\\n\" + JSON.stringify($json.user) + \"\\n\\nJOB:\\n\" + JSON.stringify($json.job)) }}",
+        "options": {
+          "systemMessage": "You are a career strategist. Analyze candidate-job fit. Return STRICT JSON:\\n{\"fit_score\":integer 0-100(REQUIRED),\"gap_analysis\":string(REQUIRED),\"alignment_report\":string(REQUIRED),\"strategic_angle\":string(2-3 sentences,REQUIRED),\"recommended_keywords\":[string]}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "j108",
-      "name": "Ollama - Analyze Fit",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Analyze Fit",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         3380,
         600
@@ -515,7 +575,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"LLM fit invalid JSON\"); }\nif (typeof p.fit_score !== \"number\" || p.fit_score < 0 || p.fit_score > 100) throw new Error(\"fit_score must be 0-100\");\np.fit_score = Math.round(p.fit_score);\nif (!p.gap_analysis) throw new Error(\"Missing gap_analysis\");\nconst ctx = $(\"Merge - Context\").first().json;\np.job_id = ctx.job_id; p.company_id = ctx.company_id; p.user = ctx.user; p.job = ctx.job;\np._llm_model = resp.model || \"\"; p._llm_tokens = resp.usage || null;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.output;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"LLM fit invalid JSON\"); }\nif (typeof p.fit_score !== \"number\" || p.fit_score < 0 || p.fit_score > 100) throw new Error(\"fit_score must be 0-100\");\np.fit_score = Math.round(p.fit_score);\nif (!p.gap_analysis) throw new Error(\"Missing gap_analysis\");\nconst ctx = $(\"Merge - Context\").first().json;\np.job_id = ctx.job_id; p.company_id = ctx.company_id; p.user = ctx.user; p.job = ctx.job;\np._llm_model = resp.model || \"\"; p._llm_tokens = resp.usage || null;\nreturn [{ json: p }];"
       },
       "id": "j109",
       "name": "Validate - Fit",
@@ -569,19 +629,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.3,\"messages\":[{\"role\":\"system\",\"content\":\"You are an ATS resume optimizer. Rewrite the resume for the target job. Rules: 1) Rewrite summary. 2) Reword experience with JD keywords. 3) Reorder skills. 4) Quantify achievements. 5) Do NOT fabricate.\\\\nReturn STRICT JSON: {\\\"tailored_summary\\\":string(REQUIRED),\\\"tailored_experience\\\":[{\\\"title\\\":string,\\\"company\\\":string,\\\"bullets\\\":[string]}](REQUIRED),\\\"tailored_skills\\\":[string](REQUIRED),\\\"ats_score_estimate\\\":integer 0-100}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"Resume: \" + JSON.stringify($(\"Validate - Fit\").first().json.user) + \"\\nJob: \" + JSON.stringify($(\"Validate - Fit\").first().json.job) + \"\\nAngle: \" + $(\"Validate - Fit\").first().json.strategic_angle) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.3
+        }
+      },
+      "id": "h100_lm",
+      "name": "LM - Tailor Resume",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        4340,
+        300
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify(\"Resume: \" + JSON.stringify($(\"Validate - Fit\").first().json.user) + \"\\nJob: \" + JSON.stringify($(\"Validate - Fit\").first().json.job) + \"\\nAngle: \" + $(\"Validate - Fit\").first().json.strategic_angle) }}",
+        "options": {
+          "systemMessage": "You are an ATS resume optimizer. Rewrite the resume for the target job. Rules: 1) Rewrite summary. 2) Reword experience with JD keywords. 3) Reorder skills. 4) Quantify achievements. 5) Do NOT fabricate.\\nReturn STRICT JSON: {\"tailored_summary\":string(REQUIRED),\"tailored_experience\":[{\"title\":string,\"company\":string,\"bullets\":[string]}](REQUIRED),\"tailored_skills\":[string](REQUIRED),\"ats_score_estimate\":integer 0-100}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "h100",
-      "name": "Ollama - Tailor Resume",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Tailor Resume",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         4340,
         420
@@ -589,7 +669,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Tailor invalid JSON\"); }\nif (!p.tailored_summary) throw new Error(\"Missing tailored_summary\");\nif (!Array.isArray(p.tailored_experience)) throw new Error(\"tailored_experience must be array\");\np._raw = resp.choices[0].message.content;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Tailor invalid JSON\"); }\nif (!p.tailored_summary) throw new Error(\"Missing tailored_summary\");\nif (!Array.isArray(p.tailored_experience)) throw new Error(\"tailored_experience must be array\");\np._raw = resp.output;\nreturn [{ json: p }];"
       },
       "id": "h101",
       "name": "Validate - Tailor",
@@ -602,19 +682,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.7,\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI content humanizer. Rewrite to sound naturally human: vary sentence length, use contractions, remove buzzword stacking.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_text\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json._raw) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.7
+        }
+      },
+      "id": "h102_lm",
+      "name": "LM - Humanize Resume",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        4820,
+        300
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify($json._raw) }}",
+        "options": {
+          "systemMessage": "You are an AI content humanizer. Rewrite to sound naturally human: vary sentence length, use contractions, remove buzzword stacking.\\nReturn STRICT JSON: {\"ai_detection_score\":integer 0-100,\"humanized_text\":string(REQUIRED),\"changes_made\":[string]}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "h102",
-      "name": "Ollama - Humanize Resume",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Humanize Resume",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         4820,
         420
@@ -622,7 +722,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Humanize invalid JSON\"); }\nif (!p.humanized_text) throw new Error(\"Missing humanized_text\");\nconst ctx = $(\"Validate - Fit\").first().json;\np.user_id = ctx.user.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.strategic_angle = ctx.strategic_angle;\np.company_name = ctx.job.company_name; p.job_title = ctx.job.job_title;\np.hr_contact_name = ctx.job.hr_contact_name || \"Hiring Manager\";\np.hr_email = ctx.job.hr_email;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Humanize invalid JSON\"); }\nif (!p.humanized_text) throw new Error(\"Missing humanized_text\");\nconst ctx = $(\"Validate - Fit\").first().json;\np.user_id = ctx.user.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.strategic_angle = ctx.strategic_angle;\np.company_name = ctx.job.company_name; p.job_title = ctx.job.job_title;\np.hr_contact_name = ctx.job.hr_contact_name || \"Hiring Manager\";\np.hr_email = ctx.job.hr_email;\nreturn [{ json: p }];"
       },
       "id": "h103",
       "name": "Validate - Humanized Resume",
@@ -655,19 +755,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a cold outreach email specialist. Write a personalized job application email. Reference specific company details, genuine interest, value proposition, clear CTA.\\\\nReturn STRICT JSON: {\\\"subject_line\\\":string(REQUIRED),\\\"email_body\\\":string(150-200 words,REQUIRED),\\\"cta\\\":string}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify(\"To: \" + $(\"Validate - Humanized Resume\").first().json.hr_contact_name + \" at \" + $(\"Validate - Humanized Resume\").first().json.company_name + \"\\nRole: \" + $(\"Validate - Humanized Resume\").first().json.job_title + \"\\nAngle: \" + $(\"Validate - Humanized Resume\").first().json.strategic_angle) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.6
+        }
+      },
+      "id": "h105_lm",
+      "name": "LM - Draft Email",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        5540,
+        300
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify(\"To: \" + $(\"Validate - Humanized Resume\").first().json.hr_contact_name + \" at \" + $(\"Validate - Humanized Resume\").first().json.company_name + \"\\nRole: \" + $(\"Validate - Humanized Resume\").first().json.job_title + \"\\nAngle: \" + $(\"Validate - Humanized Resume\").first().json.strategic_angle) }}",
+        "options": {
+          "systemMessage": "You are a cold outreach email specialist. Write a personalized job application email. Reference specific company details, genuine interest, value proposition, clear CTA.\\nReturn STRICT JSON: {\"subject_line\":string(REQUIRED),\"email_body\":string(150-200 words,REQUIRED),\"cta\":string}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "h105",
-      "name": "Ollama - Draft Email",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Draft Email",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         5540,
         420
@@ -675,19 +795,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this cold email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.8
+        }
+      },
+      "id": "h106_lm",
+      "name": "LM - Humanize Email",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        5780,
+        300
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "{{ JSON.stringify($input.first().json.choices[0].message.content) }}",
+        "options": {
+          "systemMessage": "You are a human authenticity editor. Make this cold email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\nReturn STRICT JSON: {\"ai_detection_score\":integer 0-100,\"humanized_subject\":string(REQUIRED),\"humanized_body\":string(REQUIRED),\"changes_made\":[string]}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "h106",
-      "name": "Ollama - Humanize Email",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Humanize Email",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         5780,
         420
@@ -695,7 +835,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Email humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\np.application_id = $(\"Postgres - Upsert Application\").first().json.application_id;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Email humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\np.application_id = $(\"Postgres - Upsert Application\").first().json.application_id;\nreturn [{ json: p }];"
       },
       "id": "h107",
       "name": "Validate - Email",
@@ -1342,7 +1482,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\n// AI Agent returns { output: \"...\" }, fallback to Ollama format for compatibility\nconst content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) || JSON.stringify(resp);\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Classification invalid JSON: \" + String(content).substring(0,500)); }\nconst validTypes = [\"INTERVIEW_INVITE\",\"FOLLOW_UP_REQUIRED\",\"REJECTION\",\"INFORMATION_REQUEST\",\"OTHER\"];\nif (!validTypes.includes(p.reply_type)) throw new Error(\"Invalid reply_type: \" + p.reply_type);\nif (typeof p.requires_user_action !== \"boolean\") p.requires_user_action = false;\nconst ctx = $(\"Validate - Inbound Payload\").first().json;\nconst thread = $(\"Postgres - Match Thread\").first().json;\np.user_id = ctx.user_id; p.thread_id = ctx.thread_id; p.message_id = ctx.message_id;\np.sender_email = ctx.sender_email; p.email_body = ctx.email_body; p.email_mode = ctx.email_mode;\np.dispatch_log_id = thread.dispatch_log_id || null; p.job_id = thread.job_id || null;\np.company_id = thread.company_id || null; p.subject = ctx.subject || thread.subject || \"\";\np._classification_json = JSON.stringify(p);\np._llm_model = \"ai-agent\"; p._llm_tokens = null;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\n// AI Agent returns { output: \"...\" }, fallback to Ollama format for compatibility\nconst content = resp.output || (resp.choices && resp.choices[0] && resp.choices[0].message && resp.output) || JSON.stringify(resp);\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Classification invalid JSON: \" + String(content).substring(0,500)); }\nconst validTypes = [\"INTERVIEW_INVITE\",\"FOLLOW_UP_REQUIRED\",\"REJECTION\",\"INFORMATION_REQUEST\",\"OTHER\"];\nif (!validTypes.includes(p.reply_type)) throw new Error(\"Invalid reply_type: \" + p.reply_type);\nif (typeof p.requires_user_action !== \"boolean\") p.requires_user_action = false;\nconst ctx = $(\"Validate - Inbound Payload\").first().json;\nconst thread = $(\"Postgres - Match Thread\").first().json;\np.user_id = ctx.user_id; p.thread_id = ctx.thread_id; p.message_id = ctx.message_id;\np.sender_email = ctx.sender_email; p.email_body = ctx.email_body; p.email_mode = ctx.email_mode;\np.dispatch_log_id = thread.dispatch_log_id || null; p.job_id = thread.job_id || null;\np.company_id = thread.company_id || null; p.subject = ctx.subject || thread.subject || \"\";\np._classification_json = JSON.stringify(p);\np._llm_model = \"ai-agent\"; p._llm_tokens = null;\nreturn [{ json: p }];"
       },
       "id": "i013",
       "name": "Validate - Classification",
@@ -1452,19 +1592,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant writing a follow-up reply. Context: You previously applied for a role and received a response. Generate a contextual, professional reply. Keep it concise (80-120 words). Be helpful, enthusiastic, and specific.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Original subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nReply type: \" + $(\"Validate - Classification\").first().json.reply_type + \"\\nIncoming email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.5
+        }
+      },
+      "id": "i020_lm",
+      "name": "LM - Generate Reply",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        3620,
+        1480
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify(\"Original subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nReply type: \" + $(\"Validate - Classification\").first().json.reply_type + \"\\nIncoming email: \" + $(\"Validate - Classification\").first().json.email_body) }}",
+        "options": {
+          "systemMessage": "You are a professional job applicant writing a follow-up reply. Context: You previously applied for a role and received a response. Generate a contextual, professional reply. Keep it concise (80-120 words). Be helpful, enthusiastic, and specific.\\nReturn STRICT JSON: {\"reply_subject\":string(REQUIRED),\"reply_body\":string(REQUIRED)}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "i020",
-      "name": "Ollama - Generate Reply",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Generate Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         3620,
         1600
@@ -1472,19 +1632,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.8
+        }
+      },
+      "id": "i021_lm",
+      "name": "LM - Humanize Reply",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        3860,
+        1480
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($input.first().json.choices[0].message.content) }}",
+        "options": {
+          "systemMessage": "You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\nReturn STRICT JSON: {\"ai_detection_score\":integer 0-100,\"humanized_subject\":string(REQUIRED),\"humanized_body\":string(REQUIRED),\"changes_made\":[string]}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "i021",
-      "name": "Ollama - Humanize Reply",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Humanize Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         3860,
         1600
@@ -1492,7 +1672,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Reply humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.recipient_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = p.humanized_subject; p.body = p.humanized_body;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Reply humanize invalid JSON\"); }\nif (!p.humanized_subject) throw new Error(\"Missing humanized_subject\");\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.recipient_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = p.humanized_subject; p.body = p.humanized_body;\nreturn [{ json: p }];"
       },
       "id": "i022",
       "name": "Validate - Reply",
@@ -1556,19 +1736,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.4,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a brief, polite acknowledgment to a rejection email. Express gratitude for their time, wish them well, and leave the door open. Keep it under 60 words.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nRejection email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.4
+        }
+      },
+      "id": "i030_lm",
+      "name": "LM - Rejection Ack",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        3620,
+        1680
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify(\"Subject: \" + $(\"Validate - Classification\").first().json.subject + \"\\nRejection email: \" + $(\"Validate - Classification\").first().json.email_body) }}",
+        "options": {
+          "systemMessage": "You are a professional job applicant. Write a brief, polite acknowledgment to a rejection email. Express gratitude for their time, wish them well, and leave the door open. Keep it under 60 words.\\nReturn STRICT JSON: {\"reply_subject\":string(REQUIRED),\"reply_body\":string(REQUIRED)}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "i030",
-      "name": "Ollama - Rejection Ack",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Rejection Ack",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         3620,
         1800
@@ -1576,7 +1776,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Rejection ack invalid JSON\"); }\nif (!p.reply_body) throw new Error(\"Missing reply_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.recipient_email = ctx.sender_email;\np.subject = p.reply_subject || \"Re: \" + ctx.subject; p.body = p.reply_body;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Rejection ack invalid JSON\"); }\nif (!p.reply_body) throw new Error(\"Missing reply_body\");\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.recipient_email = ctx.sender_email;\np.subject = p.reply_subject || \"Re: \" + ctx.subject; p.body = p.reply_body;\nreturn [{ json: p }];"
       },
       "id": "i031",
       "name": "Validate - Rejection Ack",
@@ -1685,19 +1885,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are an interview details extractor. Extract scheduling information from the email.\\\\nReturn STRICT JSON matching this schema exactly:\\\\n{\\\"interview_date\\\":string(REQUIRED, ISO 8601 format YYYY-MM-DD),\\\"interview_time\\\":string(REQUIRED, HH:MM 24h format),\\\"timezone\\\":string(default \\\"UTC\\\"),\\\"interview_mode\\\":string(REQUIRED, one of: VIRTUAL, IN_PERSON, PHONE),\\\"meeting_link\\\":string|null,\\\"interviewer_name\\\":string|null,\\\"interviewer_email\\\":string|null,\\\"location\\\":string|null,\\\"duration_minutes\\\":integer(default 60),\\\"additional_notes\\\":string|null}\\\\nReturn ONLY valid JSON. No markdown fences.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.1
+        }
+      },
+      "id": "iv000_lm",
+      "name": "LM - Extract Interview",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        3620,
+        1080
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($(\"Validate - Classification\").first().json.email_body) }}",
+        "options": {
+          "systemMessage": "You are an interview details extractor. Extract scheduling information from the email.\\nReturn STRICT JSON matching this schema exactly:\\n{\"interview_date\":string(REQUIRED, ISO 8601 format YYYY-MM-DD),\"interview_time\":string(REQUIRED, HH:MM 24h format),\"timezone\":string(default \"UTC\"),\"interview_mode\":string(REQUIRED, one of: VIRTUAL, IN_PERSON, PHONE),\"meeting_link\":string|null,\"interviewer_name\":string|null,\"interviewer_email\":string|null,\"location\":string|null,\"duration_minutes\":integer(default 60),\"additional_notes\":string|null}\\nReturn ONLY valid JSON. No markdown fences.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "iv000",
-      "name": "Ollama - Extract Interview",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Extract Interview",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         3620,
         1200
@@ -1705,7 +1925,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst content = resp.choices[0].message.content;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Interview extract invalid JSON: \" + content.substring(0,500)); }\nif (!p.interview_date || !p.interview_time) throw new Error(\"Missing interview_date or interview_time\");\nconst validModes = [\"VIRTUAL\",\"IN_PERSON\",\"PHONE\"];\nif (!validModes.includes(p.interview_mode)) p.interview_mode = \"VIRTUAL\";\np.duration_minutes = p.duration_minutes || 60;\np.timezone = p.timezone || \"UTC\";\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.sender_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = ctx.subject;\np.interviewer_email = p.interviewer_email || ctx.sender_email;\np._llm_model = resp.model || \"\";\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nconst content = resp.output;\nlet p; try { p = JSON.parse(content); } catch(e) { throw new Error(\"Interview extract invalid JSON: \" + content.substring(0,500)); }\nif (!p.interview_date || !p.interview_time) throw new Error(\"Missing interview_date or interview_time\");\nconst validModes = [\"VIRTUAL\",\"IN_PERSON\",\"PHONE\"];\nif (!validModes.includes(p.interview_mode)) p.interview_mode = \"VIRTUAL\";\np.duration_minutes = p.duration_minutes || 60;\np.timezone = p.timezone || \"UTC\";\nconst ctx = $(\"Validate - Classification\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id; p.company_id = ctx.company_id;\np.sender_email = ctx.sender_email; p.email_mode = ctx.email_mode;\np.subject = ctx.subject;\np.interviewer_email = p.interviewer_email || ctx.sender_email;\np._llm_model = resp.model || \"\";\nreturn [{ json: p }];"
       },
       "id": "iv001",
       "name": "Validate - Interview Details",
@@ -1865,19 +2085,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.5,\"messages\":[{\"role\":\"system\",\"content\":\"You are a professional job applicant. Write a concise interview confirmation email (80-120 words). Confirm date, time, and mode. Express enthusiasm. Ask if anything needs to be prepared.\\\\nReturn STRICT JSON: {\\\"reply_subject\\\":string(REQUIRED),\\\"reply_body\\\":string(REQUIRED)}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify(\"Interview date: \" + $(\"Validate - Interview Details\").first().json.interview_date + \" \" + $(\"Validate - Interview Details\").first().json.interview_time + \"\\nMode: \" + $(\"Validate - Interview Details\").first().json.interview_mode + \"\\nInterviewer: \" + ($(\"Validate - Interview Details\").first().json.interviewer_name || \"Hiring Manager\") + \"\\nOriginal email: \" + $(\"Validate - Classification\").first().json.email_body) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.5
+        }
+      },
+      "id": "iv008_lm",
+      "name": "LM - Confirmation Email",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        5300,
+        1080
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify(\"Interview date: \" + $(\"Validate - Interview Details\").first().json.interview_date + \" \" + $(\"Validate - Interview Details\").first().json.interview_time + \"\\nMode: \" + $(\"Validate - Interview Details\").first().json.interview_mode + \"\\nInterviewer: \" + ($(\"Validate - Interview Details\").first().json.interviewer_name || \"Hiring Manager\") + \"\\nOriginal email: \" + $(\"Validate - Classification\").first().json.email_body) }}",
+        "options": {
+          "systemMessage": "You are a professional job applicant. Write a concise interview confirmation email (80-120 words). Confirm date, time, and mode. Express enthusiasm. Ask if anything needs to be prepared.\\nReturn STRICT JSON: {\"reply_subject\":string(REQUIRED),\"reply_body\":string(REQUIRED)}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "iv008",
-      "name": "Ollama - Confirmation Email",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Confirmation Email",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         5300,
         1200
@@ -1885,19 +2125,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.OLLAMA_API_URL }}/chat/completions",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"model\":\"{{ $env.OLLAMA_MODEL }}\",\"max_tokens\":{{ $env.OLLAMA_MAX_TOKENS || 4096 }},\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\\\nReturn STRICT JSON: {\\\"ai_detection_score\\\":integer 0-100,\\\"humanized_subject\\\":string(REQUIRED),\\\"humanized_body\\\":string(REQUIRED),\\\"changes_made\\\":[string]}\\\\nReturn ONLY valid JSON.\"},{\"role\":\"user\",\"content\":={{ JSON.stringify($input.first().json.choices[0].message.content) }}}]}",
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
         "options": {
-          "timeout": "={{ Number($env.OLLAMA_TIMEOUT_MS) || 120000 }}"
+          "temperature": 0.8
+        }
+      },
+      "id": "iv009_lm",
+      "name": "LM - Humanize Confirmation",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        5540,
+        1080
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "CONFIGURE_ME",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($input.first().json.choices[0].message.content) }}",
+        "options": {
+          "systemMessage": "You are a human authenticity editor. Make this reply email sound like a real person. Vary sentence length, use contractions, add one subtle personal touch.\\nReturn STRICT JSON: {\"ai_detection_score\":integer 0-100,\"humanized_subject\":string(REQUIRED),\"humanized_body\":string(REQUIRED),\"changes_made\":[string]}\\nReturn ONLY valid JSON.",
+          "returnIntermediateSteps": false
         }
       },
       "id": "iv009",
-      "name": "Ollama - Humanize Confirmation",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
+      "name": "AI Agent - Humanize Confirmation",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
       "position": [
         5540,
         1200
@@ -1905,7 +2165,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.choices[0].message.content); } catch(e) { throw new Error(\"Confirmation humanize invalid JSON\"); }\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Interview Details\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id;\np.recipient_email = ctx.interviewer_email;\np.subject = p.humanized_subject || \"Re: \" + ctx.subject; p.body = p.humanized_body;\np.email_mode = ctx.email_mode;\nreturn [{ json: p }];"
+        "jsCode": "const resp = $input.first().json;\nlet p; try { p = JSON.parse(resp.output); } catch(e) { throw new Error(\"Confirmation humanize invalid JSON\"); }\nif (!p.humanized_body) throw new Error(\"Missing humanized_body\");\nconst ctx = $(\"Validate - Interview Details\").first().json;\np.user_id = ctx.user_id; p.job_id = ctx.job_id;\np.recipient_email = ctx.interviewer_email;\np.subject = p.humanized_subject || \"Re: \" + ctx.subject; p.body = p.humanized_body;\np.email_mode = ctx.email_mode;\nreturn [{ json: p }];"
       },
       "id": "iv010",
       "name": "Validate - Confirmation",
@@ -2127,14 +2387,14 @@
       "main": [
         [
           {
-            "node": "Ollama - Structure Resume",
+            "node": "AI Agent - Structure Resume",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Structure Resume": {
+    "AI Agent - Structure Resume": {
       "main": [
         [
           {
@@ -2204,14 +2464,14 @@
       "main": [
         [
           {
-            "node": "Ollama - Normalize Job",
+            "node": "AI Agent - Normalize Job",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Normalize Job": {
+    "AI Agent - Normalize Job": {
       "main": [
         [
           {
@@ -2259,14 +2519,14 @@
       "main": [
         [
           {
-            "node": "Ollama - Analyze Fit",
+            "node": "AI Agent - Analyze Fit",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Analyze Fit": {
+    "AI Agent - Analyze Fit": {
       "main": [
         [
           {
@@ -2303,7 +2563,7 @@
       "main": [
         [
           {
-            "node": "Ollama - Tailor Resume",
+            "node": "AI Agent - Tailor Resume",
             "type": "main",
             "index": 0
           }
@@ -2317,7 +2577,7 @@
         ]
       ]
     },
-    "Ollama - Tailor Resume": {
+    "AI Agent - Tailor Resume": {
       "main": [
         [
           {
@@ -2332,14 +2592,14 @@
       "main": [
         [
           {
-            "node": "Ollama - Humanize Resume",
+            "node": "AI Agent - Humanize Resume",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Humanize Resume": {
+    "AI Agent - Humanize Resume": {
       "main": [
         [
           {
@@ -2365,25 +2625,25 @@
       "main": [
         [
           {
-            "node": "Ollama - Draft Email",
+            "node": "AI Agent - Draft Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Draft Email": {
+    "AI Agent - Draft Email": {
       "main": [
         [
           {
-            "node": "Ollama - Humanize Email",
+            "node": "AI Agent - Humanize Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Humanize Email": {
+    "AI Agent - Humanize Email": {
       "main": [
         [
           {
@@ -2749,21 +3009,21 @@
       "main": [
         [
           {
-            "node": "Ollama - Extract Interview",
+            "node": "AI Agent - Extract Interview",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Ollama - Generate Reply",
+            "node": "AI Agent - Generate Reply",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Ollama - Rejection Ack",
+            "node": "AI Agent - Rejection Ack",
             "type": "main",
             "index": 0
           }
@@ -2777,18 +3037,18 @@
         ]
       ]
     },
-    "Ollama - Generate Reply": {
+    "AI Agent - Generate Reply": {
       "main": [
         [
           {
-            "node": "Ollama - Humanize Reply",
+            "node": "AI Agent - Humanize Reply",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Humanize Reply": {
+    "AI Agent - Humanize Reply": {
       "main": [
         [
           {
@@ -2828,7 +3088,7 @@
         ]
       ]
     },
-    "Ollama - Rejection Ack": {
+    "AI Agent - Rejection Ack": {
       "main": [
         [
           {
@@ -2872,7 +3132,7 @@
         ]
       ]
     },
-    "Ollama - Extract Interview": {
+    "AI Agent - Extract Interview": {
       "main": [
         [
           {
@@ -2949,25 +3209,25 @@
       "main": [
         [
           {
-            "node": "Ollama - Confirmation Email",
+            "node": "AI Agent - Confirmation Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Confirmation Email": {
+    "AI Agent - Confirmation Email": {
       "main": [
         [
           {
-            "node": "Ollama - Humanize Confirmation",
+            "node": "AI Agent - Humanize Confirmation",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Humanize Confirmation": {
+    "AI Agent - Humanize Confirmation": {
       "main": [
         [
           {
@@ -3028,6 +3288,188 @@
           }
         ]
       ]
+    },
+    "LM - Structure Resume": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Structure Resume",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Normalize Job": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Normalize Job",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Analyze Fit": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Analyze Fit",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Tailor Resume": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Tailor Resume",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Humanize Resume": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Humanize Resume",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Draft Email": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Draft Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Humanize Email": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Humanize Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Generate Reply": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Generate Reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Humanize Reply": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Humanize Reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Rejection Ack": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Rejection Ack",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Extract Interview": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Extract Interview",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Confirmation Email": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Confirmation Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Humanize Confirmation": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Humanize Confirmation",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -3048,7 +3490,7 @@
       "name": "email-dispatch"
     },
     {
-      "name": "ollama"
+      "name": "ai-agent"
     }
   ]
 }

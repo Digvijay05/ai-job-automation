@@ -95,7 +95,12 @@ services:
 
   # ─── Ollama LLM Service ─────────────────────────
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama
+      args:
+        OLLAMA_MODEL: ${OLLAMA_MODEL}
+    # image: custom-ollama:latest
     container_name: ollama
     restart: unless-stopped
     ports:
@@ -107,7 +112,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: [ "CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1" ]
+      test: [ "CMD", "ollama", "list" ]
       interval: 15s
       timeout: 10s
       retries: 5
