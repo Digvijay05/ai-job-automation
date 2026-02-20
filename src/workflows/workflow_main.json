@@ -1478,6 +1478,28 @@
     },
     {
       "parameters": {
+        "model": "={{ $env.OLLAMA_MODEL || 'llama3' }}",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "i012_lm",
+      "name": "LM - Classify Reply",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        1280
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
+        }
+      }
+    },
+    {
+      "parameters": {
         "promptType": "define",
         "text": "={{ JSON.stringify($json.email_body || $(\"Validate - Inbound Payload\").first().json.email_body) }}",
         "options": {
@@ -3395,6 +3417,20 @@
         [
           {
             "node": "AI Agent - Humanize Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LM - Classify Reply": {
+      "main": [
+        []
+      ],
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Classify Reply",
             "type": "ai_languageModel",
             "index": 0
           }

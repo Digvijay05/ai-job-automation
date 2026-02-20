@@ -795,7 +795,7 @@ CLASSIFY_AGENT_PROMPT = (
     '"summary":string(1-2 sentences summarizing the reply)}\\n'
     "Return ONLY valid JSON. No markdown fences."
 )
-nodes.append(agent_node("i012", "AI Agent - Classify Reply", CLASSIFY_AGENT_PROMPT,
+nodes.extend(llm_pair("i012", "AI Agent - Classify Reply", CLASSIFY_AGENT_PROMPT,
     '={{ JSON.stringify($json.email_body || $("Validate - Inbound Payload").first().json.email_body) }}',
     _pos(2660, Y_I)))
 
