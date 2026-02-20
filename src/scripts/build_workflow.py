@@ -605,7 +605,69 @@ nodes.append(validate_node("m001", "Validate - Application",
 # This connects to the shared email dispatch chain starting at e000
 
 # ═══════════════════════════════════════════════════
-# SECTION 5: INBOUND EMAIL HANDLING
+# SECTION 5A: GMAIL TRIGGER (INBOUND ENTRY POINT)
+# ═══════════════════════════════════════════════════
+# This is a standalone trigger that polls Gmail for new emails.
+# It feeds into the same classification pipeline as the webhook-based flow.
+Y_GT = 1800
+
+# Gmail Trigger - poll for unread replies
+nodes.append(node("gt000", "Gmail Trigger", "gmailTrigger", {
+    "event": "messageReceived",
+    "simple": True,
+    "filters": {
+        "readStatus": "unread",
+        "q": "is:reply OR in:inbox -category:promotions -category:social",
+    },
+    "options": {},
+}, _pos(200, Y_GT), version=1, creds=GMAIL_CREDS))
+
+# Normalize Gmail Trigger output → standard inbound schema
+nodes.append(validate_node("gt001", "Normalize - Gmail Input",
+    'const msg = $input.first().json;\n'
+    '// Gmail Trigger simplified output fields\n'
+    'const threadId = msg.threadId || msg.id || "";\n'
+    'const messageId = msg.id || msg.messageId || "";\n'
+    'const from = msg.from || msg.sender || "";\n'
+    '// Extract email address from "Name <email@example.com>" format\n'
+    'const emailMatch = from.match(/<(.+?)>/);\n'
+    'const senderEmail = emailMatch ? emailMatch[1] : from;\n'
+    'const subject = msg.subject || msg.Subject || "";\n'
+    'const body = msg.textPlain || msg.snippet || msg.text || "";\n'
+    'return [{ json: {\n'
+    '  thread_id: threadId,\n'
+    '  message_id: messageId,\n'
+    '  sender_email: senderEmail,\n'
+    '  email_body: body,\n'
+    '  subject: subject,\n'
+    '  _source: "gmail_trigger",\n'
+    '} }];',
+    _pos(500, Y_GT)))
+
+# Look up user by the Gmail account that received the email
+nodes.append(pg_query("gt002", "Postgres - Lookup User By Email",
+    "=SELECT u.user_id, u.email_mode FROM users u "
+    "JOIN user_email_credentials uec ON u.user_id = uec.user_id "
+    "WHERE uec.provider_email = '{{ $json.sender_email }}' "
+    "OR u.email = '{{ $json.sender_email }}' "
+    "AND uec.is_active = TRUE LIMIT 1;",
+    _pos(800, Y_GT)))
+
+# Merge user context into the normalized payload
+nodes.append(validate_node("gt003", "Validate - Gmail User",
+    'const user = $input.first().json;\n'
+    'if (!user || !user.user_id) {\n'
+    '  // Unknown sender — no matching user in DB, skip\n'
+    '  throw new Error("No active user found for incoming email");\n'
+    '}\n'
+    'const normalized = $("Normalize - Gmail Input").first().json;\n'
+    'normalized.user_id = user.user_id;\n'
+    'normalized.email_mode = user.email_mode || "DRAFT";\n'
+    'return [{ json: normalized }];',
+    _pos(1100, Y_GT)))
+
+# ═══════════════════════════════════════════════════
+# SECTION 5B: INBOUND EMAIL HANDLING (SHARED PIPELINE)
 # ═══════════════════════════════════════════════════
 Y_I = 1400
 
@@ -1041,7 +1103,13 @@ add_conn("Log - Draft Saved", ["Set - Draft OK"])
 add_conn("Postgres - Fetch Application", ["Validate - Application"])
 add_conn("Validate - Application", ["Check - Rate Limit"])
 
-# Inbound email branch
+# Gmail Trigger inbound entry (parallel to webhook-based inbound)
+add_conn("Gmail Trigger", ["Normalize - Gmail Input"])
+add_conn("Normalize - Gmail Input", ["Postgres - Lookup User By Email"])
+add_conn("Postgres - Lookup User By Email", ["Validate - Gmail User"])
+add_conn("Validate - Gmail User", ["Postgres - Check Inbound Dup"])
+
+# Webhook-based inbound email branch
 add_conn("Log - Inbound Start", ["Postgres - Check Inbound Dup"])
 add_conn("Postgres - Check Inbound Dup", ["IF - Inbound Already Processed"])
 add_conn("IF - Inbound Already Processed", ["Set - Inbound Skipped"], ["Validate - Inbound Payload"])

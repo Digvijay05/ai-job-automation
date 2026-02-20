@@ -1134,6 +1134,77 @@
     },
     {
       "parameters": {
+        "event": "messageReceived",
+        "simple": true,
+        "filters": {
+          "readStatus": "unread",
+          "q": "is:reply OR in:inbox -category:promotions -category:social"
+        },
+        "options": {}
+      },
+      "id": "gt000",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        1800
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CONFIGURE_ME",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json;\n// Gmail Trigger simplified output fields\nconst threadId = msg.threadId || msg.id || \"\";\nconst messageId = msg.id || msg.messageId || \"\";\nconst from = msg.from || msg.sender || \"\";\n// Extract email address from \"Name <email@example.com>\" format\nconst emailMatch = from.match(/<(.+?)>/);\nconst senderEmail = emailMatch ? emailMatch[1] : from;\nconst subject = msg.subject || msg.Subject || \"\";\nconst body = msg.textPlain || msg.snippet || msg.text || \"\";\nreturn [{ json: {\n  thread_id: threadId,\n  message_id: messageId,\n  sender_email: senderEmail,\n  email_body: body,\n  subject: subject,\n  _source: \"gmail_trigger\",\n} }];"
+      },
+      "id": "gt001",
+      "name": "Normalize - Gmail Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        1800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT u.user_id, u.email_mode FROM users u JOIN user_email_credentials uec ON u.user_id = uec.user_id WHERE uec.provider_email = '{{ $json.sender_email }}' OR u.email = '{{ $json.sender_email }}' AND uec.is_active = TRUE LIMIT 1;"
+      },
+      "id": "gt002",
+      "name": "Postgres - Lookup User By Email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        800,
+        1800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = $input.first().json;\nif (!user || !user.user_id) {\n  // Unknown sender — no matching user in DB, skip\n  throw new Error(\"No active user found for incoming email\");\n}\nconst normalized = $(\"Normalize - Gmail Input\").first().json;\nnormalized.user_id = user.user_id;\nnormalized.email_mode = user.email_mode || \"DRAFT\";\nreturn [{ json: normalized }];"
+      },
+      "id": "gt003",
+      "name": "Validate - Gmail User",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        1800
+      ]
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "=INSERT INTO workflow_logs (user_id, module_name, execution_id, status, input_summary) VALUES ('{{ $json.user_id }}'::uuid, 'inbound_email', '={{ $execution.id }}', 'STARTED', '{\"thread_id\": \"{{ $json._request_body.data.thread_id }}\"}'::jsonb);"
       },
@@ -2529,6 +2600,50 @@
         [
           {
             "node": "Check - Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize - Gmail Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize - Gmail Input": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Lookup User By Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Lookup User By Email": {
+      "main": [
+        [
+          {
+            "node": "Validate - Gmail User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate - Gmail User": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Check Inbound Dup",
             "type": "main",
             "index": 0
           }
