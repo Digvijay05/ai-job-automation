@@ -1,0 +1,92 @@
+[
+    {
+        "job_id": "j_tech_101",
+        "company_id": "c_tech_001",
+        "job_title": "Senior Backend Engineer - AI Infrastructure",
+        "job_description": "We are seeking a Senior Backend Engineer to design and optimize high-throughput microservices that serve LLM models. You will be responsible for latency optimization, distributed caching, and scaling our Kubernetes clusters.",
+        "required_skills": [
+            "Python",
+            "Go",
+            "Kubernetes",
+            "Redis",
+            "gRPC",
+            "FastAPI"
+        ],
+        "experience_level": "Senior (5+ years)",
+        "salary_range": "$160,000 - $210,000",
+        "location": "Remote (US Timezones)",
+        "application_email": "digvijayjadav.dev@gmail.com",
+        "posted_date": "2026-02-15"
+    },
+    {
+        "job_id": "j_tech_102",
+        "company_id": "c_tech_001",
+        "job_title": "Data Platform Engineer",
+        "job_description": "Join our data platform team to build scalable ETL pipelines and manage our petabyte-scale data warehouse. You will work closely with Data Scientists to ensure high data quality and availability.",
+        "required_skills": [
+            "Python",
+            "Apache Spark",
+            "Airflow",
+            "Snowflake",
+            "dbt"
+        ],
+        "experience_level": "Mid-Level (3+ years)",
+        "salary_range": "$140,000 - $180,000",
+        "location": "Remote (Global)",
+        "application_email": "digvijayjadav.dev@gmail.com",
+        "posted_date": "2026-02-18"
+    },
+    {
+        "job_id": "j_fin_201",
+        "company_id": "c_fin_002",
+        "job_title": "Quantitative Developer (C++)",
+        "job_description": "Design and implement ultra-low latency trading algorithms. You will optimize execution engines and work directly with quantitative researchers to deploy strategies to production.",
+        "required_skills": [
+            "C++20",
+            "Network Programming",
+            "Linux Kernel Optimization",
+            "Python (Scripting)"
+        ],
+        "experience_level": "Senior (5+ years)",
+        "salary_range": "$250,000 - $400,000 + Bonus",
+        "location": "New York, NY (Hybrid)",
+        "application_email": "digvijayjadav.dev@gmail.com",
+        "posted_date": "2026-02-10"
+    },
+    {
+        "job_id": "j_fin_202",
+        "company_id": "c_fin_002",
+        "job_title": "Security Operations Engineer",
+        "job_description": "Protect our financial infrastructure from advanced persistent threats. You will manage SIEM systems, conduct vulnerability assessments, and respond to security incidents.",
+        "required_skills": [
+            "Cybersecurity",
+            "SIEM",
+            "AWS Security",
+            "Python",
+            "Incident Response"
+        ],
+        "experience_level": "Mid-Level (3+ years)",
+        "salary_range": "$130,000 - $170,000",
+        "location": "New York, NY (Onsite)",
+        "application_email": "digvijayjadav.dev@gmail.com",
+        "posted_date": "2026-02-19"
+    },
+    {
+        "job_id": "j_health_301",
+        "company_id": "c_health_003",
+        "job_title": "Machine Learning Engineer (Computer Vision)",
+        "job_description": "Develop and deploy deep learning models for medical image analysis. You will optimize inference graphs and ensure models comply with strict medical regulatory standards.",
+        "required_skills": [
+            "Python",
+            "PyTorch",
+            "OpenCV",
+            "CUDA",
+            "TensorRT"
+        ],
+        "experience_level": "Mid-Level (4+ years)",
+        "salary_range": "$150,000 - $190,000",
+        "location": "Boston, MA (Hybrid)",
+        "application_email": "digvijayjadav.dev@gmail.com",
+        "posted_date": "2026-02-20"
+    }
+]

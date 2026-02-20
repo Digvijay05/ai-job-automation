@@ -1,0 +1,32 @@
+[
+    {
+        "company_id": "c_tech_001",
+        "company_name": "Nebula Systems Inc.",
+        "industry": "Cloud Computing",
+        "website": "https://www.nebulasystems.mock",
+        "contact_email": "digvijayjadav.dev@gmail.com",
+        "description": "Provider of highly scalable distributed cloud infrastructure for AI workloads.",
+        "location": "San Francisco, CA (Remote Friendly)",
+        "hiring_manager": "Sarah Jenkins"
+    },
+    {
+        "company_id": "c_fin_002",
+        "company_name": "Aegis Financial Technologies",
+        "industry": "FinTech",
+        "website": "https://www.aegisfintech.mock",
+        "contact_email": "digvijayjadav.dev@gmail.com",
+        "description": "Building the next generation of algorithmic trading and secure payment gateways.",
+        "location": "New York, NY",
+        "hiring_manager": "Marcus Thorne"
+    },
+    {
+        "company_id": "c_health_003",
+        "company_name": "Vanguard BioMetrics",
+        "industry": "HealthTech",
+        "website": "https://www.vanguardbio.mock",
+        "contact_email": "digvijayjadav.dev@gmail.com",
+        "description": "Pioneering non-invasive biometric sensors for early disease detection.",
+        "location": "Boston, MA",
+        "hiring_manager": "Dr. Elena Rostova"
+    }
+]
