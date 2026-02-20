@@ -234,12 +234,19 @@
     },
     {
       "parameters": {
-        "command": "=python3 /app/scripts/resume_text.py --file \"{{ $(\"Validate - User Auth\").first().json._request_body.data.file_path }}\""
+        "method": "POST",
+        "url": "http://selenium-worker:8000/extract-resume",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"file_path\": \"{{ $(\"Validate - User Auth\").first().json._request_body.data.file_path }}\"}",
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "r100",
-      "name": "Exec - Extract Resume",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
+      "name": "HTTP - Extract Resume",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
       "position": [
         1700,
         200
@@ -247,7 +254,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json.stdout;\nconst parsed = JSON.parse(raw);\nif (parsed.error) throw new Error(\"Resume extraction failed: \" + parsed.error);\nif (!parsed.raw_text || parsed.char_count < 100) throw new Error(\"Resume text too short: \" + parsed.char_count);\nreturn [{ json: parsed }];"
+        "jsCode": "const resp = $input.first().json;\nif (!resp.success) throw new Error(\"Resume extraction failed: \" + (resp.error || \"unknown\"));\nconst parsed = resp.data;\nif (!parsed.raw_text || parsed.char_count < 100) throw new Error(\"Resume text too short: \" + parsed.char_count);\nreturn [{ json: parsed }];"
       },
       "id": "r101",
       "name": "Validate - Resume Text",
@@ -403,12 +410,19 @@
     },
     {
       "parameters": {
-        "command": "=python3 /app/scripts/selenium_scraper.py --url \"{{ $(\"Validate - User Auth\").first().json._request_body.data.job_url }}\" --type job"
+        "method": "POST",
+        "url": "http://selenium-worker:8000/scrape-job",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"url\": \"{{ $(\"Validate - User Auth\").first().json._request_body.data.job_url }}\", \"scrape_type\": \"job\"}",
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "j100",
-      "name": "Exec - Scrape Job",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
+      "name": "HTTP - Scrape Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
       "position": [
         1700,
         600
@@ -416,7 +430,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json.stdout;\nconst parsed = JSON.parse(raw);\nif (parsed.error) throw new Error(\"Scraper error: \" + parsed.error);\nif (!parsed.raw_text || parsed.raw_text.length < 50) throw new Error(\"Scraped text too short\");\nreturn [{ json: parsed }];"
+        "jsCode": "const resp = $input.first().json;\nif (!resp.success) throw new Error(\"Scraper error: \" + (resp.error || \"unknown\"));\nconst parsed = resp.data;\nif (!parsed.raw_text || parsed.raw_text.length < 50) throw new Error(\"Scraped text too short\");\nreturn [{ json: parsed }];"
       },
       "id": "j101",
       "name": "Validate - Scrape",

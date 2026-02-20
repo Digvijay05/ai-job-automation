@@ -78,6 +78,8 @@ services:
       dockerfile: Dockerfile.selenium
     container_name: selenium-worker
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     volumes:
       - ./src/scripts:/app/scripts:ro
       - ./files:/app/files
@@ -88,10 +90,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - automation-net
-    # Keep alive for n8n Execute Command calls
-    command: [ "tail", "-f", "/dev/null" ]
 
   # ─── Ollama LLM Service ─────────────────────────
   ollama:

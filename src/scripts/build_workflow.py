@@ -230,14 +230,18 @@ nodes.append(pg_query("r000", "Log - Resume Start",
     "'STARTED', '{\"file_path\": \"{{ $json._request_body.data.file_path }}\"}'::jsonb);",
     _pos(1460, Y_R)))
 
-nodes.append(node("r100", "Exec - Extract Resume", "executeCommand", {
-    "command": '=python3 /app/scripts/resume_text.py --file "{{ $("Validate - User Auth").first().json._request_body.data.file_path }}"',
-}, _pos(1700, Y_R)))
+nodes.append(node("r100", "HTTP - Extract Resume", "httpRequest", {
+    "method": "POST",
+    "url": "http://selenium-worker:8000/extract-resume",
+    "sendBody": True, "specifyBody": "json",
+    "jsonBody": '={"file_path": "{{ $("Validate - User Auth").first().json._request_body.data.file_path }}"}',
+    "options": {"timeout": 30000},
+}, _pos(1700, Y_R), version=4))
 
 nodes.append(validate_node("r101", "Validate - Resume Text",
-    'const raw = $input.first().json.stdout;\n'
-    'const parsed = JSON.parse(raw);\n'
-    'if (parsed.error) throw new Error("Resume extraction failed: " + parsed.error);\n'
+    'const resp = $input.first().json;\n'
+    'if (!resp.success) throw new Error("Resume extraction failed: " + (resp.error || "unknown"));\n'
+    'const parsed = resp.data;\n'
     'if (!parsed.raw_text || parsed.char_count < 100) throw new Error("Resume text too short: " + parsed.char_count);\n'
     'return [{ json: parsed }];',
     _pos(1940, Y_R)))
@@ -299,14 +303,18 @@ nodes.append(pg_query("j000", "Log - Job Start",
     "'{\"job_url\": \"{{ $json._request_body.data.job_url }}\"}'::jsonb);",
     _pos(1460, Y_J)))
 
-nodes.append(node("j100", "Exec - Scrape Job", "executeCommand", {
-    "command": '=python3 /app/scripts/selenium_scraper.py --url "{{ $("Validate - User Auth").first().json._request_body.data.job_url }}" --type job',
-}, _pos(1700, Y_J)))
+nodes.append(node("j100", "HTTP - Scrape Job", "httpRequest", {
+    "method": "POST",
+    "url": "http://selenium-worker:8000/scrape-job",
+    "sendBody": True, "specifyBody": "json",
+    "jsonBody": '={"url": "{{ $("Validate - User Auth").first().json._request_body.data.job_url }}", "scrape_type": "job"}',
+    "options": {"timeout": 60000},
+}, _pos(1700, Y_J), version=4))
 
 nodes.append(validate_node("j101", "Validate - Scrape",
-    'const raw = $input.first().json.stdout;\n'
-    'const parsed = JSON.parse(raw);\n'
-    'if (parsed.error) throw new Error("Scraper error: " + parsed.error);\n'
+    'const resp = $input.first().json;\n'
+    'if (!resp.success) throw new Error("Scraper error: " + (resp.error || "unknown"));\n'
+    'const parsed = resp.data;\n'
     'if (!parsed.raw_text || parsed.raw_text.length < 50) throw new Error("Scraped text too short");\n'
     'return [{ json: parsed }];',
     _pos(1940, Y_J)))
