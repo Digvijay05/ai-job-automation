@@ -34,7 +34,7 @@ def _api(method: str, endpoint: str, body: dict | None = None) -> dict:
     data = json.dumps(body).encode("utf-8") if body else None
     req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(req, timeout=30) as resp:
+        with urlopen(req, timeout=60) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         body_text = e.read().decode("utf-8", errors="replace")
@@ -60,6 +60,12 @@ def deploy(activate: bool = False) -> str:
     logger.info("Loaded workflow: %d nodes, %d connection sources",
                 len(workflow["nodes"]), len(workflow["connections"]))
 
+    # Sanitize: n8n API doesn't accept tags as objects in create/update payload
+    workflow.pop("tags", None)
+    # Remove unsupported settings
+    if "settings" in workflow:
+        workflow["settings"].pop("callerPolicy", None)
+
     # Check for existing workflow with same name
     existing = _api("GET", "/workflows")
     match = next(
@@ -80,7 +86,7 @@ def deploy(activate: bool = False) -> str:
     logger.info("Deployed workflow ID: %s", wf_id)
 
     if activate:
-        _api("PATCH", f"/workflows/{wf_id}", {"active": True})
+        _api("POST", f"/workflows/{wf_id}/activate")
         logger.info("Workflow activated.")
 
     logger.info("Done. Open: %s/workflow/%s", BASE_URL, wf_id)
