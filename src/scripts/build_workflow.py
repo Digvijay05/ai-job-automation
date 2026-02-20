@@ -32,6 +32,21 @@ if _CONFIG_PATH.exists():
         for _k, _v in _raw.items():
             if isinstance(_v, dict) and "id" in _v:
                 _creds_data[_k] = _v
+else:
+    print(f"WARNING: {_CONFIG_PATH} not found. Using CONFIGURE_ME placeholders.",
+          file=sys.stderr)
+    print("  Run: python scripts/provision_credentials.py", file=sys.stderr)
+
+# Validate: warn about placeholder IDs
+_placeholder_keys = [k for k, v in _creds_data.items() if v.get("id") == "CONFIGURE_ME"]
+if _placeholder_keys:
+    print(f"WARNING: Credential IDs still placeholder: {_placeholder_keys}",
+          file=sys.stderr)
+    print("  Run: python scripts/provision_credentials.py", file=sys.stderr)
+    if "--strict" in sys.argv:
+        print("ERROR: --strict mode: aborting due to placeholder credentials.",
+              file=sys.stderr)
+        sys.exit(1)
 
 # ──────────────────────────────────────────────────
 # Helpers

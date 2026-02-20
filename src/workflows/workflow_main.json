@@ -86,8 +86,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -227,8 +227,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -282,8 +282,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -333,8 +333,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -353,8 +353,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -403,8 +403,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -458,8 +458,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -509,8 +509,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -529,8 +529,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -564,8 +564,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -615,8 +615,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -658,8 +658,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -711,8 +711,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -762,8 +762,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -784,8 +784,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -824,8 +824,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -875,8 +875,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -929,8 +929,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -975,8 +975,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1015,8 +1015,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1066,8 +1066,8 @@
       ],
       "credentials": {
         "gmailOAuth2": {
-          "id": "CONFIGURE_ME",
-          "name": "Gmail OAuth2"
+          "id": "ebAwwLqU2o14xuq9",
+          "name": "gmail-oauth2-production"
         }
       }
     },
@@ -1086,8 +1086,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1106,8 +1106,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1126,8 +1126,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1172,8 +1172,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1218,8 +1218,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1268,8 +1268,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1306,8 +1306,8 @@
       ],
       "credentials": {
         "gmailOAuth2": {
-          "id": "CONFIGURE_ME",
-          "name": "Gmail OAuth2"
+          "id": "ebAwwLqU2o14xuq9",
+          "name": "gmail-oauth2-production"
         }
       }
     },
@@ -1339,8 +1339,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1372,8 +1372,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1392,8 +1392,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1471,8 +1471,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1522,8 +1522,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1621,8 +1621,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -1661,8 +1661,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -1765,8 +1765,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -1816,8 +1816,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1862,8 +1862,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -1914,8 +1914,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -1965,8 +1965,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -2052,8 +2052,8 @@
       ],
       "credentials": {
         "googleCalendarOAuth2Api": {
-          "id": "CONFIGURE_ME",
-          "name": "Google Calendar"
+          "id": "fLRPD4WYVYbtJLqQ",
+          "name": "google-calendar-production"
         }
       }
     },
@@ -2072,8 +2072,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -2092,8 +2092,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },
@@ -2114,8 +2114,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -2154,8 +2154,8 @@
       ],
       "credentials": {
         "ollamaApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Ollama"
+          "id": "rLcnvnKiYjZRIfwj",
+          "name": "ollama-production"
         }
       }
     },
@@ -2252,8 +2252,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "Postgres"
+          "id": "0lGJusI8BARMj5IA",
+          "name": "postgres-production"
         }
       }
     },

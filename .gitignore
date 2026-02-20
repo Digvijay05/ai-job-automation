@@ -22,3 +22,4 @@ files/*
 !files/.gitkeep
 logs/
 tmp/
+config/credentials.json
